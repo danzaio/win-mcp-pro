@@ -194,28 +194,6 @@ def fake_uia_no_cache(monkeypatch):
     return mod
 
 
-class _JumpClock:
-    """Each read after the first burns 10 seconds of budget."""
-
-    def __init__(self):
-        self.calls = 0
-
-    def __call__(self):
-        self.calls += 1
-        return 0.0 if self.calls == 1 else self.calls * 10.0
-
-
-class _JumpClock:
-    """Each read after the first burns 10 seconds of budget."""
-
-    def __init__(self):
-        self.calls = 0
-
-    def __call__(self):
-        self.calls += 1
-        return 0.0 if self.calls == 1 else self.calls * 10.0
-
-
 # --------------------------------------------------------------------------
 # fast mode
 # --------------------------------------------------------------------------
@@ -365,8 +343,10 @@ def test_timeout_raises_and_releases_cache(monkeypatch, cleared_exclusions):
     monkeypatch.setattr(snap, "_uia", mod)
     monkeypatch.setattr(snap, "_list_windows", lambda: [slow])
 
+    # depth 16 (the schema maximum) means ~15 hops at 20ms each: the 100ms
+    # budget fires mid-walk, well before the walk could ever finish.
     with pytest.raises(snap.SnapshotTimeout):
-        snap.snapshot(mode="full", depth=4, timeout_ms=100)
+        snap.snapshot(mode="full", depth=16, timeout_ms=100)
     assert state["released"] is True
 
 
@@ -510,8 +490,11 @@ def test_node_cap_stops_walk(fake_uia, monkeypatch):
 
 
 def test_children_cap_truncates(fake_uia, monkeypatch):
+    _, notepad, calc = _build_tree()
     monkeypatch.setattr(snap, "_MAX_CHILDREN", 1)
+    monkeypatch.setattr(snap, "_list_windows", lambda: [notepad, calc])
     s = snap.snapshot(mode="full", depth=3)
+    # the cap applies inside each window walk, not to the enumeration itself
     assert [e.id for e in s.elements] == [
         "100:42", "100:42,1", "200:43", "200:43,1",
     ]
