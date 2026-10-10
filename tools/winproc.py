@@ -315,13 +315,14 @@ def _need_windows() -> None:
 
 
 def _rid_to_integrity(rid: int) -> str:
-    """Map a mandatory-label RID to a level name (real winnt.h buckets).
+    """Map a mandatory-label RID to a level name (winnt.h buckets).
 
     SECURITY_MANDATORY_UNTRUSTED_RID 0x0000, LOW 0x1000, MEDIUM 0x2000,
-    HIGH 0x3000, SYSTEM 0x4000; anything at/above 0x5000 (protected) folds
-    into "system" so the level set stays {untrusted, low, medium, high,
-    system} for downstream consumers.
+    HIGH 0x3000, SYSTEM 0x4000, PROTECTED_PROCESS 0x5000. The names match
+    server.security.integrity_label so both slices speak one vocabulary.
     """
+    if rid >= 0x5000:
+        return "protected-process"
     if rid >= 0x4000:
         return "system"
     if rid >= 0x3000:
@@ -537,7 +538,7 @@ def _proc_cmdline(pid: int) -> tuple[str | None, bool, str]:
             handle, 0, ctypes.byref(pbi), ctypes.sizeof(pbi), None
         )
         if status != 0:
-            return None, False, " Peb-query-failed"
+            return None, False, "peb-query-failed"
         word = ctypes.sizeof(ctypes.c_void_p)
         params_addr = _read_ptr(handle, pbi.PebBaseAddress + 4 * word)
         if not params_addr:

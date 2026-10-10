@@ -333,12 +333,41 @@ def test_unknown_root_id(fake_uia):
 # timeout (per-call budget, skip-not-hang)
 # --------------------------------------------------------------------------
 
-def test_timeout_raises_and_releases_cache(fake_uia, monkeypatch):
-    monkeypatch.setattr(snap, "_perf_counter", _JumpClock())
+def test_timeout_raises_and_releases_cache(monkeypatch, cleared_exclusions):
+    """The per-window timeout still releases the cache request (finally)."""
+    state = {"released": False}
+
+    class _Request:
+        def __init__(self):
+            self.properties = []
+            self.patterns = []
+
+        def AddProperty(self, prop_id):
+            self.properties.append(prop_id)
+            return self
+
+        def AddPattern(self, pattern_id):
+            self.patterns.append(pattern_id)
+            return self
+
+        def Release(self):
+            state["released"] = True
+
+    slow = _SlowProviderNode("slowui.exe", 4242, 0x900, sleep_s=0.02)
+    slow.BuildUpdatedCache = lambda request: slow
+    mod = types.SimpleNamespace(
+        PropertyId=types.SimpleNamespace(**_PROP_IDS),
+        PatternId=types.SimpleNamespace(**_PATTERN_IDS),
+        CacheRequest=_Request,
+        TreeScope_Subtree=5,
+        AutomationElementMode_Full=0,
+    )
+    monkeypatch.setattr(snap, "_uia", mod)
+    monkeypatch.setattr(snap, "_list_windows", lambda: [slow])
+
     with pytest.raises(snap.SnapshotTimeout):
-        snap.snapshot(mode="full", depth=3, timeout_ms=5000)
-    # finally released the cache request even on the timeout path
-    assert fake_uia._built[0].released is True
+        snap.snapshot(mode="full", depth=4, timeout_ms=100)
+    assert state["released"] is True
 
 
 def test_timeout_not_triggered_within_budget(fake_uia):

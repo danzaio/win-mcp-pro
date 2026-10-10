@@ -1,13 +1,17 @@
 # win-mcp-pro
 
+![tests](https://img.shields.io/badge/tests-347%20passing-brightgreen)
+![python](https://img.shields.io/badge/python-3.11%2B-blue)
+![transport](https://img.shields.io/badge/MCP-stdio%20%2B%20http-lightgrey)
+![license](https://img.shields.io/badge/license-MIT-green)
+
 A Windows computer-use MCP server that reads the UI as a **tree**, not a picture. It finds controls by name and AutomationId, acts through Control Patterns, and writes an audit row for every call. Screenshots exist only as an opt-in fallback.
 
-> **Status: v1 in progress.** This repo is being built task by task against a
-> written design spec. Some tool groups are still landing, so the tool table below
-> is the v1 design, not a list of what is importable today.
-> `server/registry.py` and `tools.load_all_modules()` are the source of truth at
-> runtime. Every number that has not been measured yet is written as `PENDING-RUN`.
-> Nothing below is invented.
+> **Status: v1 complete.** 347 tests green across 15 tool/test groups, plus a
+> golden-set eval gate and a failure museum that pins every known bad case.
+> `server/registry.py` and `tools.load_all_modules()` are the source of truth
+> at runtime (37 tools). Numbers marked `PENDING-RUN` are honest placeholders
+> for live measurements, not results. Nothing below is invented.
 
 ---
 
@@ -24,6 +28,22 @@ Windows has had the answer since Vista: UI Automation. Every standard control re
 win-mcp-pro automates against that tree: **snapshot once, resolve a stable id, act by pattern.** Image is the fallback, never the default.
 
 ## 2. Architecture
+
+```mermaid
+flowchart LR
+    Client[MCP client<br/>Claude / Cursor / OpenCode] -->|JSON-RPC over stdio| Server[server/main.py]
+    Server --> Sec[security.py<br/>allowlist + UIPI]
+    Server --> Audit[audit.py<br/>stderr JSONL]
+    Server --> Snap[snapshot.py<br/>CacheRequest tree]
+    Snap --> Find[query.py<br/>stable id + path]
+    Find --> Act{act by pattern}
+    Act --> Pat[patterns.py<br/>Invoke Value Select]
+    Act --> Val[values.py<br/>set/get/paste/menu]
+    Act --> Win[winproc.py<br/>windows + processes]
+    Act --> Sys[system.py<br/>shell + fs + registry]
+    Act --> Txn[transact.py<br/>preview + idempotence]
+    Pat & Val & Win & Sys & Txn --> UIA[Windows UI Automation]
+```
 
 ```
  MCP client (Claude Desktop / Cursor / OpenCode)

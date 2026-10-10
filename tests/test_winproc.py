@@ -172,7 +172,7 @@ def test_is_elevated_self_returns_bool():
 def test_integrity_level_self_is_known():
     res = call("integrity_level", pid=os.getpid())
     assert res["rid"] > 0
-    assert res["level"] in {"untrusted", "low", "medium", "high", "system"}
+    assert res["level"] in {"untrusted", "low", "medium", "high", "system", "protected-process"}
 
 
 def test_integrity_level_maps_rids():
@@ -181,7 +181,7 @@ def test_integrity_level_maps_rids():
     assert wp._rid_to_integrity(0x2000) == "medium"
     assert wp._rid_to_integrity(0x3000) == "high"
     assert wp._rid_to_integrity(0x4000) == "system"
-    assert wp._rid_to_integrity(0x5000) == "system"
+    assert wp._rid_to_integrity(0x5000) == "protected-process"
     assert wp._rid_to_integrity(0x0000) == "untrusted"
 
 
