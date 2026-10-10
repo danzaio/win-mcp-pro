@@ -46,12 +46,12 @@ REQUIRED_TOOLS = [
 ]
 
 
-def call(name, **kwargs):
+def call(tool_name, **kwargs):
     """Invoke a tool by name through the TOOLS registry."""
     for tool in wp.TOOLS:
-        if tool["name"] == name:
+        if tool["name"] == tool_name:
             return tool["handler"](kwargs)
-    raise AssertionError(f"tool not registered: {name}")
+    raise AssertionError(f"tool not registered: {tool_name}")
 
 
 @pytest.fixture(autouse=True)
@@ -176,11 +176,12 @@ def test_integrity_level_self_is_known():
 
 
 def test_integrity_level_maps_rids():
-    assert wp._rid_to_integrity(0x2000) == "low"
-    assert wp._rid_to_integrity(0x3000) == "medium"
-    assert wp._rid_to_integrity(0x4000) == "high"
-    assert wp._rid_to_integrity(0x5000) == "high"
-    assert wp._rid_to_integrity(0x6000) == "system"
+    # Real winnt.h buckets (the original values here were shifted +0x1000).
+    assert wp._rid_to_integrity(0x1000) == "low"
+    assert wp._rid_to_integrity(0x2000) == "medium"
+    assert wp._rid_to_integrity(0x3000) == "high"
+    assert wp._rid_to_integrity(0x4000) == "system"
+    assert wp._rid_to_integrity(0x5000) == "system"
     assert wp._rid_to_integrity(0x0000) == "untrusted"
 
 

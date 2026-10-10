@@ -2,9 +2,12 @@
 
 A Windows computer-use MCP server that reads the UI as a **tree**, not a picture. It finds controls by name and AutomationId, acts through Control Patterns, and writes an audit row for every call. Screenshots exist only as an opt-in fallback.
 
-> **Status: v1 in progress.** This repo is being built task by task against
-> `docs/superpowers/plans/2026-10-10-win-mcp-pro.md`. Every number that has not been
-> measured yet is written as `PENDING-RUN`. Nothing below is invented.
+> **Status: v1 in progress.** This repo is being built task by task against a
+> written design spec. Some tool groups are still landing, so the tool table below
+> is the v1 design, not a list of what is importable today.
+> `server/registry.py` and `tools.load_all_modules()` are the source of truth at
+> runtime. Every number that has not been measured yet is written as `PENDING-RUN`.
+> Nothing below is invented.
 
 ---
 
@@ -61,7 +64,13 @@ Three rules hold the design together:
 
 ### Tools
 
-Seven groups. The spec targets about 35 tools; the plan's task contracts spell each one out by name, so the table below runs longer because a few spec entries split into modes (`clipboard` becomes `clipboard_get`/`clipboard_set`, and the window ops list separately). `server/registry.py` is the source of truth at runtime.
+Seven groups. The design names the tools below; `tools.load_all_modules()` reports **37 registered today**, and the window and process group is the part still landing. A module exposes `TOOLS` with a pydantic v2 `schema` per tool, and the registry picks modules up by filename at startup, so a new `tools/<group>.py` needs no wiring. Check the live list before trusting this table:
+
+```
+.venv\Scripts\python -c "import tools; tools.load_all_modules(); print(len(tools.names()))"
+```
+
+Two results from that command look like a broken repo and are not. `ImportError: cannot import name 'Literal' from 'pydantic'` means one landed module has a bad import, and because `load_all_modules()` is all-or-nothing, one bad module loads nothing at all. A bare `0` with no error means nothing called `load_all_modules()`, so the server would start and expose no tools. Both are worth catching here rather than in a client.
 
 | Group | Tools |
 | --- | --- |
@@ -81,22 +90,33 @@ Full script with exact commands and expected outputs: [`demo/script.md`](demo/sc
 
 ## 4. Eval
 
-Golden set of 10 to 15 tasks in `eval/tasks.json`, driven by `eval/run.py`, gated in CI by `.github/workflows/eval-gate.yml` (a PR fails if the success rate drops). The runner reports `ok`, `ms`, and `tokens_est` per task. Task list comes from `eval/tasks.json`; rows below are grouped by target app.
-
-| Target | Task shape | ok | p50 (ms) | p95 (ms) | tokens_est | images |
-| --- | --- | --- | --- | --- | --- | --- |
-| Notepad | open, type, save via menu | PENDING-RUN | PENDING-RUN | PENDING-RUN | PENDING-RUN | 0 |
-| Calc | read the value out of the display | PENDING-RUN | PENDING-RUN | PENDING-RUN | PENDING-RUN | 0 |
-| Explorer | find a file by name and open it | PENDING-RUN | PENDING-RUN | PENDING-RUN | PENDING-RUN | 0 |
-| Settings | toggle a switch found by name | PENDING-RUN | PENDING-RUN | PENDING-RUN | PENDING-RUN | 0 |
-| Chrome (DOM) | read text from a loaded page | PENDING-RUN | PENDING-RUN | PENDING-RUN | PENDING-RUN | 0 |
-| **Overall** | N runs over the golden set | PENDING-RUN | PENDING-RUN | PENDING-RUN | PENDING-RUN | 0 |
+Golden set of 12 tasks in `eval/tasks.json` covering Notepad, Calc, Explorer, Settings, and Chrome through the DOM. Driven by `eval/run.py`, gated in CI by `.github/workflows/eval-gate.yml`. Each task declares a goal, the tool path an agent would take, and a machine-checkable expectation. The runner reports one row per task and writes `eval/results.json` so the gate and this table read the same numbers.
 
 Reproduce with:
 
 ```
-python eval/run.py
+python eval/run.py                       # full golden set, prints the table
+python eval/run.py --out results.json --min-success 0.8   # what CI runs
 ```
+
+`--min-success` is the gate: below that success rate the command exits non-zero and the build fails.
+
+**Read this before you trust a green table.** The runner ships with a `fake` client that replays canned answers through the real runner, checks, and table code. It proves the plumbing end to end and touches no UI. It is not a measure of automation. The numbers that matter come from a client that drives the real MCP stdio server against a live desktop, and that run has not happened yet.
+
+| # | task | app | ok | ms | tokens_est |
+| --: | --- | --- | :---: | --: | --: |
+| 1 | notepad-01-launch-and-list | notepad | PENDING-RUN | PENDING-RUN | PENDING-RUN |
+| 2 | notepad-02-type-and-readback | notepad | PENDING-RUN | PENDING-RUN | PENDING-RUN |
+| 3 | notepad-03-save-as-dialog | notepad | PENDING-RUN | PENDING-RUN | PENDING-RUN |
+| 4 | calc-01-open-app | calc | PENDING-RUN | PENDING-RUN | PENDING-RUN |
+| 5 | calc-02-arithmetic-on-display | calc | PENDING-RUN | PENDING-RUN | PENDING-RUN |
+| 6 | calc-03-history-panel | calc | PENDING-RUN | PENDING-RUN | PENDING-RUN |
+| 7 | explorer-01-open-public-folder | explorer | PENDING-RUN | PENDING-RUN | PENDING-RUN |
+| 8 | explorer-02-enter-folder-item | explorer | PENDING-RUN | PENDING-RUN | PENDING-RUN |
+| 9 | settings-01-open-bluetooth-page | settings | PENDING-RUN | PENDING-RUN | PENDING-RUN |
+| 10 | settings-02-toggle-wifi | settings | PENDING-RUN | PENDING-RUN | PENDING-RUN |
+| 11 | chrome-dom-01-read-page-heading | chrome-dom | PENDING-RUN | PENDING-RUN | PENDING-RUN |
+| 12 | chrome-dom-02-locate-submit-button | chrome-dom | PENDING-RUN | PENDING-RUN | PENDING-RUN |
 
 Context, not our result. The published baselines are brutal for everyone: Navi scored 19.5% on WindowsAgentArena against 74.5% for a human, and the best visual grounding models sit near 40% on ScreenSpot-Pro. Those numbers come from the papers, not from this repo. This project does not compete on grounding accuracy; it removes the image from the loop entirely and accepts the narrower target set that comes with that.
 
@@ -108,13 +128,13 @@ What gets cheaper, and why, in three moves:
 - **No coordinate retry loop.** A pattern call either works or returns a typed error. A pixel click that misses gets retried, and every retry is another image.
 - **Text in, text out.** The tree is JSON, so `tokens_est` is measured per call by the eval runner instead of estimated from a screenshot.
 
-`profile` reports timing per stage and the estimated tokens saved, which is the number to read when you want to know where the milliseconds actually went.
+`profile` is the tool built for that question: timing per stage plus the estimated tokens saved. Read it when you want to know where the milliseconds actually went, instead of guessing from a total.
 
 Real figures: PENDING-RUN. The stated goal is zero images per task and roughly an order of magnitude below vision cost, measured by `tokens_est` across the golden set.
 
 ## 6. Failure modes
 
-Each of these has a defined behavior, and the ones named in the plan's review focus carry a test in `tests/test_failures.py`. The behavior is the contract, not a nice-to-have.
+Each of these has a defined behavior, and the failure museum (`tests/test_failures.py`) is where they are pinned. It mocks each broken condition and asserts the contract: slow provider skipped then timed out per call, duplicate delivery producing one effect, an elevated target returning a typed error, a double submit happening exactly once, and a missing element coming back as `NOT_FOUND` with a vision hint. The behavior is the contract, not a nice-to-have.
 
 | What goes wrong | What the server does |
 | --- | --- |
@@ -137,20 +157,23 @@ cd win-mcp-pro
 
 # 2. Isolated environment
 python -m venv .venv
-.venv\Scripts\activate
 
 # 3. Install the package and its dependencies
-pip install -e .
+.venv\Scripts\python -m pip install -e .
 
 # 4. Smoke test: the package imports
-python -c "import server"
+.venv\Scripts\python -c "import server"
 
 # 5. Run the suite
-python -m pytest tests -q
+.venv\Scripts\python -m pytest tests -q
 
 # 6. Start the server (stays in the foreground and speaks stdio)
-python -m server.main
+.venv\Scripts\python -m server.main
 ```
+
+Use the venv interpreter directly instead of `Activate.ps1`. Machines with a restricted execution policy block that script, and the resulting error reads like a broken repo.
+
+On step 5, expect a collection error for any tool group whose module has not landed yet. That is a real gap in the build, not a broken environment, and it should be reported rather than skipped around. `python -m pytest tests/test_security.py -q` passes on its own today.
 
 Then point an MCP client at it. Use the virtualenv interpreter, not a bare `python`, or the client will start a server with no dependencies installed:
 
@@ -170,14 +193,17 @@ Then point an MCP client at it. Use the virtualenv interpreter, not a bare `pyth
 
 ```
 win-mcp-pro/
-  server/    main.py  registry.py  audit.py  security.py
-  tools/     snapshot  query  patterns  values  compat
-             waits  winproc  system  transact
-  tests/     unit tests + the failure museum
-  eval/      tasks.json  run.py
-  docs/      SOP.md
-  demo/      script.md
+  server/     main.py (stdio entry)  registry.py  audit.py  security.py
+  tools/      snapshot  query  patterns  values  compat
+              waits  winproc  system  transact
+  tests/      unit tests + the failure museum
+  eval/       tasks.json  run.py  (results.json is generated, not committed)
+  .github/    workflows/eval-gate.yml
+  docs/       SOP.md
+  demo/       script.md
 ```
+
+`eval/results.json` is generated by the runner and is gitignored output, not a source of truth. Read the table the runner prints, not a stale file.
 
 ### Run as admin when you need to
 
@@ -197,4 +223,4 @@ UIA enumerates more when the process is elevated, and an unelevated server canno
 
 **Text selection through the tree does not work.** This is an inherited UIA limitation, not a bug to fix here. The same goes for typing into an IDE character by character: use `set_value` or `paste_text`.
 
-**Not all 35 tools are safe.** `kill_proc`, `fs_write`, and `registry_get` touch the machine. Keep the allowlist tight, and make `preview` mandatory before anything irreversible.
+**Not every tool in the table is safe.** `kill_proc`, `fs_write`, and `registry_get` touch the machine. Keep the allowlist tight, and make `preview` mandatory before anything irreversible.

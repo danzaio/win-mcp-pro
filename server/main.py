@@ -123,6 +123,11 @@ def run_stdio_server(
     blocklist: list[str] | None = None,
 ) -> None:
     """Serve MCP on stdio until the client closes the connection."""
+    import tools
+
+    tools.load_all_modules()  # production boot discovers every tool module;
+    # build_server() alone stays lazy so in-memory test sessions control
+    # exactly which tools exist.
     server = build_server(allowlist, blocklist)
     audit(
         {
@@ -132,12 +137,6 @@ def run_stdio_server(
         }
     )
     asyncio.run(_serve(server))
-
-
-def _parse_list(value: str | None) -> list[str] | None:
-    if not value:
-        return None
-    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -152,9 +151,22 @@ def main(argv: list[str] | None = None) -> int:
         "--exclude-tools", help="comma-separated blocklist of tool names to hide"
     )
     args = parser.parse_args(argv)
+    # Fail-closed filtering: an explicit but empty --tools is a config error
+    # (never silently "allow everything"); absent flags mean unrestricted.
+    from .security import parse_tool_filter
+
+    filter_argv: list[str] = []
+    if args.tools is not None:
+        filter_argv += ["--tools", args.tools]
+    if args.exclude_tools is not None:
+        filter_argv += ["--exclude-tools", args.exclude_tools]
+    try:
+        allowlist, blocklist = parse_tool_filter(filter_argv)
+    except ValueError as exc:
+        parser.error(str(exc))
     registry.run_server(
-        allowlist=_parse_list(args.tools),
-        blocklist=_parse_list(args.exclude_tools),
+        allowlist=sorted(allowlist) if allowlist is not None else None,
+        blocklist=sorted(blocklist) if blocklist is not None else None,
     )
     return 0
 

@@ -45,7 +45,8 @@ class FakeControl:
         self.ProcessId = 4242
 
     def GetChildren(self):
-        self.hops.append(self.Name)
+        # a chained hop is logged by the nodes it reaches, not by the caller
+        self.hops.extend(child.Name for child in self._children)
         return list(self._children)
 
     # pattern probes in the shape of the real library ---------------------

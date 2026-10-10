@@ -33,7 +33,7 @@ import hashlib
 import logging
 from collections import OrderedDict
 from collections.abc import Mapping
-from typing import Any, Callable, Iterator
+from typing import Any, Callable
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -56,7 +56,6 @@ UNAVAILABLE_REASON = (
 
 # traversal budgets: a slow provider must degrade, not hang the server
 _MAX_DEPTH = 8
-_MAX_TREE_DEPTH = 4
 _MAX_CHILDREN = 512
 _MAX_NODES = 4096
 _REGISTRY_LIMIT = 512
@@ -254,22 +253,16 @@ def _children(control: Any) -> list:
 
 
 def _roots() -> list:
-    """Top-level windows: the foreground window first, then everything else."""
+    """Top-level windows, exactly one hop out of the desktop root.
+
+    Ordering is whatever the provider returns; no secondary query (foreground
+    window, extra walk) is issued from the root, because each extra call is
+    another depth-1 hop and a pathological root can cost seconds per call.
+    """
     if _uia is None:
         return []
     root = _uia.GetRootControl()
-    foreground = None
-    get_foreground = getattr(_uia, "GetForegroundWindow", None)
-    if callable(get_foreground):
-        try:
-            foreground = get_foreground()
-        except Exception:  # noqa: BLE001 - optional fast path
-            foreground = None
-    windows = [] if root is None else _children(root)
-    if foreground is not None and foreground in windows:
-        windows.remove(foreground)
-        windows.insert(0, foreground)
-    return windows
+    return [] if root is None else _children(root)
 
 
 def _matches(control: Any, name: str | None, automation_id: str | None,
@@ -343,18 +336,20 @@ def _rect(control: Any) -> dict | None:
 
 
 def _value_text(control: Any) -> str | None:
+    """Read the text/value of a control: ValuePattern first, then TextPattern."""
     for probe in ("GetValuePattern", "GetTextPattern"):
         getter = getattr(control, probe, None)
         if not callable(getter):
             continue
-        try:
-            pattern = getter()
-            value = getattr(pattern, "Value", None) if pattern is not None else None
-        except Exception:  # noqa: BLE001 - probe failure means "not readable"
+        pattern = _safe(getter)
+        if pattern is None:
             continue
+        value = _attr(pattern, "Value")
         if value is not None:
             return str(value)
-    return None
+    # providers that surface the value directly on the control itself
+    direct = _attr(control, "Value", "_value")
+    return None if direct is None else str(direct)
 
 
 def _safe(getter: Callable[[], Any]) -> Any:

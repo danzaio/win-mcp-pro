@@ -7,6 +7,7 @@ tests/test_system.py (the package __init__ files belong to Task 1).
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -31,9 +32,9 @@ def _ps_available() -> bool:
     return shutil.which("powershell") is not None
 
 
-def call(name: str, **kwargs: Any) -> dict:
+def call(tool_name: str, **kwargs: Any) -> dict:
     """Invoke a registered tool the way the server would (schema then handler)."""
-    tool = next(t for t in sysmod.TOOLS if t["name"] == name)
+    tool = next(t for t in sysmod.TOOLS if t["name"] == tool_name)
     args = tool["schema"](**kwargs)
     return tool["handler"](args)
 
@@ -92,6 +93,23 @@ def test_powershell_captures_stderr_and_nonzero_exit() -> None:
     assert "boom" in res["stderr"]
 
 
+def _pid_alive(pid: int) -> bool:
+    """True while the process still runs (STILL_ACTIVE). Windows-only."""
+    import ctypes
+
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return False
+    try:
+        code = ctypes.c_ulong(0)
+        if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return code.value == 259  # STILL_ACTIVE
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
 @pytest.mark.skipif(not _ps_available(), reason="powershell.exe not available")
 def test_powershell_timeout_kills_process() -> None:
     res = call("powershell", cmd="Start-Sleep -Seconds 120", timeout_ms=1500)
@@ -101,12 +119,26 @@ def test_powershell_timeout_kills_process() -> None:
     assert res["exit_code"] is None
     assert res["elapsed_ms"] < 15_000  # came back fast, did not wait out the sleep
 
+    # the budget is only honest if the process is gone: poll for its death
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and _pid_alive(res["pid"]):
+        time.sleep(0.1)
+    assert not _pid_alive(res["pid"]), "timed-out powershell was left running"
+
 
 @pytest.mark.skipif(not _ps_available(), reason="powershell.exe not available")
 def test_powershell_truncates_output() -> None:
     res = call("powershell", cmd="'A' * 100000")
     assert res["stdout_truncated"] is True
     assert len(res["stdout"]) <= sysmod.MAX_OUTPUT_CHARS
+
+
+@pytest.mark.skipif(not _ps_available(), reason="powershell.exe not available")
+def test_powershell_truncates_stderr() -> None:
+    res = call("powershell", cmd='[Console]::Error.WriteLine("B" * 40000)')
+    assert res["stderr_truncated"] is True
+    assert len(res["stderr"]) <= sysmod.MAX_OUTPUT_CHARS
+    assert res["stderr"]  # it captured something before cutting
 
 
 @pytest.mark.skipif(not _ps_available(), reason="powershell.exe not available")
@@ -164,6 +196,17 @@ def test_fs_list_missing_dir(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     res = call("fs_list", path="ghost")
     assert res == {"ok": False, "error": "NOT_FOUND", "path": str(tmp_path / "ghost")}
+
+
+def test_fs_read_directory_and_list_file_rejected(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "f.txt").write_text("x", encoding="utf-8")
+    read_dir = call("fs_read", path=".")
+    assert read_dir["ok"] is False
+    assert read_dir["error"] == "IS_DIRECTORY"
+    list_file = call("fs_list", path="f.txt")
+    assert list_file["ok"] is False
+    assert list_file["error"] == "NOT_A_DIRECTORY"
 
 
 def test_fs_read_truncates(tmp_path, monkeypatch) -> None:
@@ -249,7 +292,12 @@ def test_registry_get_has_no_write_tool() -> None:
 
 def test_notify_headless_is_noop_success(monkeypatch) -> None:
     monkeypatch.setenv("WINMCP_HEADLESS", "1")
+    attempted: list[int] = []
+    monkeypatch.setattr(
+        sysmod, "_send_toast", lambda t, m: attempted.append(1) or False
+    )
     assert call("notify", title="t", msg="m") == {"ok": True, "delivered": False}
+    assert attempted == []  # headless short-circuits before touching a sender
 
 
 def test_notify_uses_injected_sender(monkeypatch) -> None:

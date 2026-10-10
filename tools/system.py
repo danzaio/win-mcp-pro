@@ -26,6 +26,7 @@ Two rules this module follows everywhere:
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -58,6 +59,18 @@ MAX_TIMEOUT_MS = 600_000
 TOAST_TIMEOUT_MS = 5_000
 
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+#: Same word list the audit redaction uses (server/security.py). A token that
+#: embeds one of these is a value we do not echo back.
+_MASKABLE_PARTS = (
+    "key", "token", "secret", "password", "passwd", "passphrase",
+    "credential", "auth", "cookie", "session", "signature", "private",
+)
+MASK = "***"
+
+#: Shorter tokens are treated as ordinary words ("key" alone would otherwise
+#: eat "monkey" out of an unrelated diagnostic).
+_MASKABLE_MIN_LEN = 8
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +179,31 @@ def _env_flag(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def _mask_needles(cmd: str) -> list[str]:
+    """What to hide: the whole command, plus its credential-looking words."""
+    needles = {cmd.strip()}
+    for word in re.split(r"\s+", cmd):
+        word = word.strip("\"'")
+        if len(word) >= _MASKABLE_MIN_LEN and any(part in word.lower() for part in _MASKABLE_PARTS):
+            needles.add(word)
+    return sorted(needles, key=len, reverse=True)
+
+
+def _mask_secret_echo(text: str, cmd: str) -> str:
+    """Mask the command text and its secret-looking words in captured output.
+
+    Powershell echoes the offending token back on failure, so anything typed on
+    the command line can leave through the pipe. The full command is always
+    masked; single words are masked only when they look like credentials (the
+    audit redaction's word list), which keeps ordinary diagnostics readable.
+    """
+    if not text:
+        return text
+    for needle in _mask_needles(cmd):
+        text = text.replace(needle, MASK)
+    return text
+
+
 def _elapsed_ms(started: float) -> int:
     return int((time.monotonic() - started) * 1000)
 
@@ -235,6 +273,10 @@ def _run_powershell(cmd: str, timeout_ms: int) -> dict:
         timed_out = True
         _kill_process_tree(proc.pid)
         try:
+            proc.kill()  # direct backstop if taskkill never ran
+        except Exception:
+            pass
+        try:
             out, err = proc.communicate(timeout=5)
         except Exception:
             out, err = "", ""
@@ -245,6 +287,7 @@ def _run_powershell(cmd: str, timeout_ms: int) -> dict:
         "ok": (not timed_out) and proc.returncode == 0,
         "exit_code": None if timed_out else proc.returncode,
         "timed_out": timed_out,
+        "pid": proc.pid,
         "stdout": out[:MAX_OUTPUT_CHARS],
         "stderr": err[:MAX_OUTPUT_CHARS],
         "stdout_truncated": len(out) > MAX_OUTPUT_CHARS,
@@ -273,11 +316,18 @@ def powershell(args: Union[PowerShellArgs, dict, None] = None, **kwargs: Any) ->
     ran but failed is still a successful observation, so it comes back with
     ``ok=False``, the real exit code and its stderr. Timed-out commands report
     ``error="TIMEOUT"`` with ``exit_code=None`` and a truncated stdout.
+    ``timed_out`` is always present as a boolean.
+
+    stdout and stderr are masked before they leave: the command string and its
+    credential-looking words are replaced with ``***``, so a token typed into
+    the command line is not echoed back through the result.
     """
     a = _coerce(PowerShellArgs, args, kwargs)
     res = _run_powershell(a.cmd, a.timeout_ms)
     if res.get("timed_out"):
         res["error"] = "TIMEOUT"
+    res["stdout"] = _mask_secret_echo(res["stdout"], a.cmd)
+    res["stderr"] = _mask_secret_echo(res["stderr"], a.cmd)
     res["cmd_len"] = len(a.cmd)
     return res
 

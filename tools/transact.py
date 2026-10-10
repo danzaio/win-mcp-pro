@@ -71,6 +71,7 @@ __all__ = [
     "preview_gate",
     "dry_run",
     "execute_action",
+    "run",
     "profile",
     "record_action",
     "record_result",
@@ -163,8 +164,16 @@ def args_hash(args: dict[str, Any]) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
+def _as_action(action: Any) -> ActionIn:
+    """House convention: every entry accepts a model or a plain mapping."""
+    if isinstance(action, dict):
+        return ActionIn(**action)
+    return action
+
+
 def action_key(action: ActionIn) -> tuple[str, str, str, str]:
     """Idempotency key: (window, element, action, args-hash)."""
+    action = _as_action(action)
     return (action.window, action.element, action.action, args_hash(action.args))
 
 
@@ -301,6 +310,7 @@ def _preview_status(action: ActionIn, now: float | None = None) -> tuple[str, st
 def preview_gate(action: ActionIn, now: float | None = None) -> dict | None:
     """Block irreversible actions without a matching preview. Consumes the
     preview_id on success. Returns None when the action may run."""
+    action = _as_action(action)
     state, reason = _preview_status(action, now=now)
     if state == "ok":
         with _PREVIEWS_LOCK:
@@ -314,6 +324,7 @@ def preview_gate(action: ActionIn, now: float | None = None) -> dict | None:
 def preview(action: ActionIn) -> dict:
     """Describe target and effect without executing. Irreversible actions get
     back a single-use preview_id for the real call."""
+    action = _as_action(action)
     key = action_key(action)
     with _PREVIEWS_LOCK:
         if len(_PREVIEWS) >= MAX_PREVIEWS:
@@ -356,6 +367,7 @@ def record_action(
     elapsed_ms: int | None = None,
 ) -> str:
     """Append one entry to the ring log and return its action_id."""
+    action = _as_action(action)
     action_id = "act_" + uuid.uuid4().hex[:10]
     entry = {
         "action_id": action_id,
@@ -428,14 +440,24 @@ def before_after(action_id: str) -> dict:
 def check_and_mark(action_or_key, now: float | None = None) -> dict:
     """Helper for tool modules: ``{"deduped": True}`` when this exact
     ``(window, element, action, args)`` already ran inside the window."""
-    key = action_or_key if isinstance(action_or_key, tuple) else action_key(action_or_key)
+    key = action_or_key if isinstance(action_or_key, tuple) else action_key(_as_action(action_or_key))
     return REGISTRY.check_and_mark(key, now=now)
 
 
-def execute_action(action: ActionIn, executor: Callable[[ActionIn], dict], now: float | None = None) -> dict:
+def _as_result(value: Any) -> dict:
+    """Accept an ActionResult dict or pydantic model from any executor."""
+    if isinstance(value, BaseModel):
+        return value.model_dump()
+    if isinstance(value, dict):
+        return dict(value)
+    return {"ok": True, "value": value}
+
+
+def _execute(action: ActionIn, executor: Callable[[ActionIn], dict], now: float | None = None) -> dict:
     """Preview gate, idempotency mark, execution, ring log. One call."""
     if executor is None or not callable(executor):
         return _err("BAD_REQUEST", "execute_action needs a callable executor")
+    action = _as_action(action)
     started = _monotonic()
 
     gate = preview_gate(action, now=now)
@@ -458,7 +480,7 @@ def execute_action(action: ActionIn, executor: Callable[[ActionIn], dict], now: 
         return {"ok": True, "deduped": True, "before": None, "after": None, "action_id": action_id}
 
     try:
-        result = dict(executor(action))
+        result = _as_result(executor(action))
     except Exception as exc:  # COM errors, torn-down controls, tool bugs
         message = f"{type(exc).__name__}: {exc}"[:300]
         action_id = record_action(
@@ -475,9 +497,65 @@ def execute_action(action: ActionIn, executor: Callable[[ActionIn], dict], now: 
     return recorded
 
 
+def execute_action(action: ActionIn, executor: Callable[[ActionIn], dict], now: float | None = None) -> dict:
+    """Run one action through the transaction with an explicit executor."""
+    return _execute(action, executor, now=now)
+
+
+#: Value-style verbs that live in tools.values; everything else is a pattern
+#: action handled by tools.patterns.run_action.
+_LEAF_VALUE_VERBS = frozenset({"set_value", "get_value", "paste_text"})
+
+
+def _leaf_dispatch(action: ActionIn) -> dict:
+    """Default executor: route the verb to the real leaf tool. Resolved at
+    call time so tests (and the server) can swap the leaf underneath us."""
+    verb = action.action.strip().lower()
+    if verb in _LEAF_VALUE_VERBS:
+        try:
+            from tools import values as _values
+        except ImportError as exc:
+            return {"ok": False, "error": "NO_EXECUTOR",
+                    "reason": f"tools.values unavailable: {exc}"}
+        fn = getattr(_values, verb, None)
+        if not callable(fn):
+            return {"ok": False, "error": "NO_EXECUTOR",
+                    "reason": f"tools.values exposes no {verb}()"}
+        if verb == "get_value":
+            return _as_result(fn(action.element))
+        return _as_result(fn(action.element, str(action.args.get("text", ""))))
+    try:
+        from tools import patterns as _patterns
+    except ImportError as exc:
+        return {"ok": False, "error": "NO_EXECUTOR",
+                "reason": f"tools.patterns unavailable: {exc}"}
+    fn = getattr(_patterns, "run_action", None)
+    if not callable(fn):
+        return {"ok": False, "error": "NO_EXECUTOR",
+                "reason": "tools.patterns exposes no run_action()"}
+    return _as_result(fn(verb, action.element))
+
+
+def _default_executor(action: ActionIn) -> Callable[[ActionIn], dict]:
+    fn = get_executor(action.action)
+    return fn if fn is not None else _leaf_dispatch
+
+
+def run(action: ActionIn, executor: Callable[[ActionIn], dict] | None = None,
+        now: float | None = None) -> dict:
+    """Public entry for one action: model or mapping in, transactional
+    pipeline out. Without an explicit executor the verb is routed to the real
+    leaf tool (or a registered one via register_executor)."""
+    action = _as_action(action)
+    if executor is None:
+        executor = _default_executor(action)
+    return _execute(action, executor, now=now)
+
+
 def dry_run(action: ActionIn, now: float | None = None) -> dict:
     """Walk the whole pipeline without touching anything: would this execute,
     and if not, why. Never marks the registry, never consumes a preview."""
+    action = _as_action(action)
     key = action_key(action)
     dedupe = REGISTRY.peek(key, now=now)
     state, reason = _preview_status(action, now=now)
@@ -509,6 +587,8 @@ def profile(action: ActionIn, executor: Callable[[ActionIn], dict] | None = None
     """Per-stage timing plus the token estimate. Reads only: nothing is marked
     and no preview is consumed. Pass ``execute=True`` (ProfileIn) with a
     registered or injected executor to time a real run."""
+    if isinstance(action, dict):
+        action = ProfileIn(**action)
     started = _monotonic()
     stamp = (lambda: now) if now is not None else _monotonic
     stages: dict[str, float] = {}

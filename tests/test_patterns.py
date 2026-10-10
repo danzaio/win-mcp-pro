@@ -230,7 +230,9 @@ class FakeUia:
         self.tree = tree
 
     def ControlFromHandle(self, handle):
-        return self.tree if (handle, int(self.tree.rid[0])) and self.tree else None
+        if self.tree is not None and self.tree.rid and self.tree.rid[0] == int(handle):
+            return self.tree
+        return None
 
 
 class FakeCOMError(Exception):
@@ -292,8 +294,7 @@ def test_handler_accepts_payload_dict(monkeypatch):
 def test_invoke_returns_before_after_shape(monkeypatch):
     el = FakeElement()
     _wire(monkeypatch, el)
-    result = patterns.invoke_action("100:7-321") if hasattr(patterns, "invoke_action") else None
-    result = result or patterns.run_action("invoke", "100:7-321").model_dump()
+    result = patterns.run_action("invoke", "100:7-321").model_dump()
     assert set(result) >= {"ok", "before", "after", "action", "error"}
     assert result["ok"] is True
     assert result["error"] is None
@@ -491,6 +492,8 @@ def test_resolve_walk_respects_node_budget(monkeypatch):
     """A pathological provider must not hang the call."""
 
     class Infinite:
+        rid = (1,)  # so ControlFromHandle hands it back as the window root
+
         def GetRuntimeId(self):
             return [1, 1]
 
@@ -535,19 +538,25 @@ def test_snapshot_reports_supported_patterns(monkeypatch):
 
 
 def test_snapshot_tolerates_unreadable_properties(monkeypatch):
-    class Broken(FakeElement):
-        def _boom(self, attr):
-            raise FakeCOMError(0x80040201, "stale element")  # UIA_E_ELEMENTNOTAVAILABLE
+    class Unreadable(FakeElement):
+        """Every property access raises, the way a stale UIA element does."""
 
         def GetInvokePattern(self):
-            raise FakeCOMError(0x80040201, "stale")
+            raise FakeCOMError(0x80040201, "stale element")  # UIA_E_ELEMENTNOTAVAILABLE
 
-        def __getattr__(self, item):
-            if item in ("Name", "IsEnabled", "IsOffscreen", "HasKeyboardFocus", "CanFocus"):
-                raise FakeCOMError(0x80040201, "stale")
-            raise AttributeError(item)
+        @property
+        def Name(self):
+            raise FakeCOMError(0x80040201, "stale element")
 
-    el = Broken()
+        @property
+        def IsEnabled(self):
+            raise FakeCOMError(0x80040201, "stale element")
+
+        @property
+        def ToggleState(self):
+            raise FakeCOMError(0x80040201, "stale element")
+
+    el = Unreadable()
     _wire(monkeypatch, el)
     snap = patterns.snapshot(el)
     assert snap["name"] is None
