@@ -234,6 +234,11 @@ def _register(control: Any, parent_path: str, window: str,
         control=control,
     )
     _remember(record)
+    # the act layer resolves by id from its own registry: publish the live
+    # control so a find id works in invoke/toggle/... with no second walk.
+    from tools import patterns as _patterns
+
+    _patterns.register_element(record.id, control)
     return record
 
 
@@ -443,8 +448,42 @@ def _lookup(element_id: str) -> _Record | dict:
     if _uia is None:
         return {"ok": False, "error": "UNAVAILABLE", "reason": UNAVAILABLE_REASON}
     record = _REGISTRY.get(element_id)
-    if record is None:
+    if record is not None:
+        return record
+    return _lookup_snapshot_id(element_id)
+
+
+def _lookup_snapshot_id(element_id: str) -> _Record | dict:
+    """Resolve a snapshot-style ``"hwnd:runtimeid"`` id the registry never saw.
+
+    The tool schemas promise find/dump_tree/snapshot ids are interchangeable;
+    only the find family lands in ``_REGISTRY``, so snapshot ids resolve via
+    the act layer (registry, then parse plus budgeted walk) and are wrapped
+    in a record on success. Anything else stays a typed NOT_FOUND.
+    """
+    from tools import patterns as _patterns
+
+    try:
+        control = _patterns.resolve_element(element_id)
+    except Exception:  # noqa: BLE001 - INVALID_ID and NOT_FOUND both stay NOT_FOUND
         return _not_found(f"no element registered under id '{element_id}'")
+    try:
+        hwnd = int(str(element_id).partition(":")[0].strip(), 10)
+    except ValueError:
+        return _not_found(f"no element registered under id '{element_id}'")
+    record = _Record(
+        element_id=element_id,
+        path=_path_segment(control),
+        parent_path="",
+        name=_text(_attr(control, "Name")),
+        kind=_control_kind(control),
+        automation_id=_text(_attr(control, "AutomationId")),
+        class_name=_text(_attr(control, "ClassName")),
+        window=f"hwnd:{hwnd}",
+        window_handle=hwnd,
+        control=control,
+    )
+    _remember(record)
     return record
 
 

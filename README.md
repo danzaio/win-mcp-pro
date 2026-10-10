@@ -1,16 +1,16 @@
 # win-mcp-pro
 
-![tests](https://img.shields.io/badge/tests-347%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-365%20passing-brightgreen)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
-![transport](https://img.shields.io/badge/MCP-stdio%20%2B%20http-lightgrey)
+![transport](https://img.shields.io/badge/MCP-stdio-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 A Windows computer-use MCP server that reads the UI as a **tree**, not a picture. It finds controls by name and AutomationId, acts through Control Patterns, and writes an audit row for every call. Screenshots exist only as an opt-in fallback.
 
-> **Status: v1 complete.** 347 tests green across 15 tool/test groups, plus a
+> **Status: v1 complete.** 365 tests green across 10 tool modules, plus a
 > golden-set eval gate and a failure museum that pins every known bad case.
 > `server/registry.py` and `tools.load_all_modules()` are the source of truth
-> at runtime (37 tools). Numbers marked `PENDING-RUN` are honest placeholders
+> at runtime (53 tools). Numbers marked `PENDING-RUN` are honest placeholders
 > for live measurements, not results. Nothing below is invented.
 
 ---
@@ -71,7 +71,7 @@ flowchart LR
  |                                          tools/transact.py          |
  |                                          tools/winproc.py            |
  |                                          tools/system.py             |
-                                            tools/vision.py (fallback)  |
+ |                                          tools/vision.py (fallback)  |
  +--------------------------------------------------------------------+
       |
       v
@@ -87,7 +87,7 @@ Three rules hold the design together:
 
 ### Tools
 
-Ten groups. The design names the tools below; `tools.load_all_modules()` reports **53 registered today**. A module exposes `TOOLS` with a pydantic v2 `schema` per tool, and the registry picks modules up by filename at startup, so a new `tools/<group>.py` needs no wiring. Check the live list before trusting this table:
+Eight groups. The design names the tools below; `tools.load_all_modules()` reports **53 registered today**. A module exposes `TOOLS` with a pydantic v2 `schema` per tool, and the registry picks modules up by filename at startup, so a new `tools/<group>.py` needs no wiring. Check the live list before trusting this table:
 
 ```
 .venv\Scripts\python -c "import tools; tools.load_all_modules(); print(len(tools.names()))"
@@ -101,7 +101,7 @@ Two results from that command look like a broken repo and are not. `ImportError:
 | Act by pattern | `invoke`, `toggle`, `select`, `expand`, `scroll_into_view`, `focus`, `set_value`, `get_value`, `paste_text`, `menu_click` |
 | Compat (opt-in) | `click`, `move`, `scroll`, `shortcut`, `clipboard_get`, `clipboard_set` |
 | Waits, one call | `wait`, `wait_text`, `wait_focus`, `wait_enabled`, `wait_gone` |
-| Window / process | `app_launch`, `win_move`, `win_resize`, `win_min`, `win_max`, `win_snap`, `get_hwnd_pid_path`, `proc_tree`, `is_elevated`, `integrity_level`, `exclude_proc`, `kill_proc` |
+| Window / process | `app_launch`, `win_move`, `win_resize`, `win_min`, `win_max`, `win_restore`, `win_snap`, `get_hwnd_pid_path`, `proc_tree`, `is_elevated`, `integrity_level`, `exclude_proc`, `kill_proc` |
 | System | `powershell`, `fs_list`, `fs_read`, `fs_write`, `registry_get`, `notify`, `scrape_dom` |
 | Transaction | `preview`, `dry_run`, `before_after`, `profile` |
 | Vision (fallback) | `screenshot`, `zoom` |
@@ -114,7 +114,7 @@ Full script with exact commands and expected outputs: [`demo/script.md`](demo/sc
 
 ## 4. Eval
 
-Golden set of 12 tasks in `eval/tasks.json` covering Notepad, Calc, Explorer, Settings, and Chrome through the DOM. Driven by `eval/run.py`, gated in CI by `.github/workflows/eval-gate.yml`. Each task declares a goal, the tool path an agent would take, and a machine-checkable expectation. The runner reports one row per task and writes `eval/results.json` so the gate and this table read the same numbers.
+Golden set of 12 tasks in `eval/tasks.json` covering Notepad, Calc, Explorer, Settings, and Chrome through the DOM. Driven by `eval/run.py`, gated in CI by `.github/workflows/eval-gate.yml`. Each task declares a goal, the tool path an agent would take, and a machine-checkable expectation. The runner reports one row per task and writes `eval/results.json` (regenerated on every run, never committed).
 
 Reproduce with:
 
@@ -235,7 +235,7 @@ UIA enumerates more when the process is elevated, and an unelevated server canno
 
 ## 8. Tradeoffs
 
-**The tree is a narrower world than the screen — so there is a fallback.** Anything without a UIA provider is invisible to the tree: Canvas, WebGL, games, some Electron builds. Vision-only agents (Microsoft's OmniParser and friends) pay image tokens on *every* step to cover that ground. Here the order is reversed: tree first, image only when the tree answers `NOT_FOUND`. The `screenshot` and `zoom` tools write a PNG to disk and hand back a path, never a base64 blob in context — same coverage as pure-vision agents where it matters, a fraction of the token bill everywhere else.
+**The tree is a narrower world than the screen, so there is a fallback.** Anything without a UIA provider is invisible to the tree: Canvas, WebGL, games, some Electron builds. Vision-only agents (Microsoft's OmniParser and friends) pay image tokens on *every* step to cover that ground. Here the order is reversed: tree first, image only when the tree answers `NOT_FOUND`. The `screenshot` and `zoom` tools write a PNG to disk and hand back a path, never a base64 blob in context. Same coverage as pure-vision agents where it matters, a fraction of the token bill everywhere else.
 
 **stdio keeps v1 simple and single-client.** No network surface, no auth to get wrong, one client at a time. Remote use needs Streamable HTTP with a bearer token, an IP allowlist, TLS, and OAuth PKCE. That is documented as an extension, not shipped here.
 

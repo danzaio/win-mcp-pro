@@ -376,3 +376,42 @@ def test_handlers_accept_mapping_params(fake_uia):
     result2 = query.find(name="Text Editor")
     assert result2["ok"] is True
     assert result["element"]["id"] == result2["element"]["id"]
+
+
+def test_register_publishes_control_to_act_layer(fake_uia):
+    """A find id must work in invoke/toggle/... without a second walk."""
+    from tools import patterns
+
+    before = set(patterns.registered_ids())
+    try:
+        result = query.find(name="Text Editor")
+        assert result["ok"] is True
+        element_id = result["element"]["id"]
+        root, window, pane, editor, _ = fake_uia
+        assert patterns.resolve_element(element_id) is editor
+    finally:
+        query._registry_clear()
+        for rid in patterns.registered_ids():
+            if rid not in before:
+                patterns.unregister_element(rid)
+
+
+def test_lookup_accepts_snapshot_style_id(fake_uia, monkeypatch):
+    """dump_tree/get_prop/get_patterns promise snapshot ids; seed one and prove it."""
+    from tools import patterns
+
+    control = FakeControl(name="Text Editor", control_type="EditControl")
+    monkeypatch.setattr(patterns, "_ELEMENTS", {"777:11,22": control})
+    try:
+        record = query._lookup("777:11,22")
+        assert not isinstance(record, dict), record
+        assert record.control is control
+        assert record.window_handle == 777
+    finally:
+        query._registry_clear()
+
+
+def test_lookup_garbage_id_stays_not_found(fake_uia):
+    result = query._lookup("nope")
+    assert isinstance(result, dict)
+    assert result["error"] == "NOT_FOUND"

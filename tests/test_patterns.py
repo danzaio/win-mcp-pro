@@ -562,3 +562,12 @@ def test_snapshot_tolerates_unreadable_properties(monkeypatch):
     assert snap["name"] is None
     assert snap["enabled"] is None
     assert snap["patterns"] == []
+
+
+def test_resolve_digest_id_from_registry_without_parsing(monkeypatch):
+    """find-layer digest ids resolve via the registry, never the parser."""
+    monkeypatch.setattr(patterns, "_ELEMENTS", {})
+    monkeypatch.setattr(patterns, "_uia", None)
+    el = object()
+    patterns.register_element("a1b2c3d4e5f6", el)
+    assert patterns.resolve_element("a1b2c3d4e5f6") is el

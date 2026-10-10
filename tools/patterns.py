@@ -185,14 +185,16 @@ def parse_element_id(element_id: Any) -> tuple[int, tuple[int, ...]]:
 def resolve_element(element_id: Any) -> Any:
     """Return the UIA element for ``element_id``.
 
-    Registry first (that is what snapshot/find published), then a budgeted
-    walk of the window subtree matching the runtime id.
+    Registry first (that is what snapshot/find published), then the
+    ``"hwnd:runtimeid"`` parse plus a budgeted walk of the window subtree.
+    A find-layer digest id resolves here without ever touching the parser.
     """
-    hwnd, runtime = parse_element_id(element_id)
+    if isinstance(element_id, str):
+        element = _ELEMENTS.get(element_id)
+        if element is not None:
+            return element
 
-    element = _ELEMENTS.get(element_id)
-    if element is not None:
-        return element
+    hwnd, runtime = parse_element_id(element_id)
 
     return _find_by_runtime_id(element_id, hwnd, runtime)
 
