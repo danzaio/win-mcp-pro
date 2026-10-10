@@ -1,0 +1,235 @@
+{
+  "version": 1,
+  "description": "Golden set for win-mcp-pro. Text-only UIA tasks (no image fallback). Each task declares the goal, a hint of the tool path an agent would take, and a machine-checkable expectation the runner verifies through a ToolClient (client.call(name, args) -> dict).",
+  "tasks": [
+    {
+      "id": "notepad-01-launch-and-list",
+      "app": "notepad",
+      "goal": "Launch Notepad and confirm its window is visible in the UIA tree.",
+      "steps_hint": [
+        "app_launch(name='notepad')",
+        "list_windows()",
+        "find(name~'Notepad')"
+      ],
+      "expect": {
+        "setup": [
+          { "tool": "app_launch", "args": { "name": "notepad" } }
+        ],
+        "tool": "list_windows",
+        "args": {},
+        "check": "contains",
+        "value": "Notepad"
+      }
+    },
+    {
+      "id": "notepad-02-type-and-readback",
+      "app": "notepad",
+      "goal": "Type a sentence into the Notepad edit control and read it back through the Value pattern.",
+      "steps_hint": [
+        "find(name='Text Editor', class_name='Edit')",
+        "set_value(id=npedit, text='hello from win-mcp-pro')",
+        "get_value(id=npedit)"
+      ],
+      "expect": {
+        "setup": [
+          { "tool": "app_launch", "args": { "name": "notepad" } },
+          { "tool": "find", "args": { "name": "Text Editor", "class_name": "Edit" } },
+          { "tool": "set_value", "args": { "id": "@np:edit", "text": "hello from win-mcp-pro" } }
+        ],
+        "tool": "get_value",
+        "args": { "id": "@np:edit" },
+        "check": "equals",
+        "value": "hello from win-mcp-pro"
+      }
+    },
+    {
+      "id": "notepad-03-save-as-dialog",
+      "app": "notepad",
+      "goal": "Open File -> Save As and confirm the modal dialog resolved by name.",
+      "steps_hint": [
+        "menu_click(path=['File', 'Save As...'])",
+        "find(name='Save As')",
+        "get_prop(id=saveas, prop='Name')"
+      ],
+      "expect": {
+        "setup": [
+          { "tool": "menu_click", "args": { "path": ["File", "Save As..."] } },
+          { "tool": "find", "args": { "name": "Save As" } }
+        ],
+        "tool": "get_prop",
+        "args": { "id": "@np:saveas", "prop": "Name" },
+        "check": "equals",
+        "value": "Save As"
+      }
+    },
+    {
+      "id": "calc-01-open-app",
+      "app": "calc",
+      "goal": "Launch Calculator and see its window in the tree.",
+      "steps_hint": [
+        "app_launch(name='calc')",
+        "list_windows()"
+      ],
+      "expect": {
+        "setup": [
+          { "tool": "app_launch", "args": { "name": "calc" } }
+        ],
+        "tool": "list_windows",
+        "args": {},
+        "check": "contains",
+        "value": "Calculator"
+      }
+    },
+    {
+      "id": "calc-02-arithmetic-on-display",
+      "app": "calc",
+      "goal": "Enter 7*6= through the display's Value pattern and read the result back.",
+      "steps_hint": [
+        "find(automation_id='CalculatorResults')",
+        "set_value(id=display, text='7*6=')",
+        "get_value(id=display)"
+      ],
+      "expect": {
+        "setup": [
+          { "tool": "app_launch", "args": { "name": "calc" } },
+          { "tool": "find", "args": { "automation_id": "CalculatorResults" } },
+          { "tool": "set_value", "args": { "id": "@calc:display", "text": "7*6=" } }
+        ],
+        "tool": "get_value",
+        "args": { "id": "@calc:display" },
+        "check": "equals",
+        "value": "42"
+      }
+    },
+    {
+      "id": "calc-03-history-panel",
+      "app": "calc",
+      "goal": "Open the History menu and see the history entries in the dumped subtree.",
+      "steps_hint": [
+        "menu_click(path=['History'])",
+        "dump_tree(id=calcwin, depth=2)"
+      ],
+      "expect": {
+        "setup": [
+          { "tool": "menu_click", "args": { "path": ["History"] } }
+        ],
+        "tool": "dump_tree",
+        "args": { "id": "@calc:win", "depth": 2 },
+        "check": "contains",
+        "value": "History"
+      }
+    },
+    {
+      "id": "explorer-01-open-public-folder",
+      "app": "explorer",
+      "goal": "Open C:\\Users\\Public in Explorer and confirm the window title.",
+      "steps_hint": [
+        "app_launch(name='explorer', argv=['C:\\\\Users\\\\Public'])",
+        "list_windows()"
+      ],
+      "expect": {
+        "setup": [
+          { "tool": "app_launch", "args": { "name": "explorer", "argv": ["C:\\Users\\Public"] } }
+        ],
+        "tool": "list_windows",
+        "args": {},
+        "check": "contains",
+        "value": "Public"
+      }
+    },
+    {
+      "id": "explorer-02-enter-folder-item",
+      "app": "explorer",
+      "goal": "Double-enter the Documents item with the Invoke pattern and read the new window title.",
+      "steps_hint": [
+        "find(name='Documents', kind='ListItem')",
+        "invoke(id=documents)",
+        "get_prop(id=expwin, prop='Name')"
+      ],
+      "expect": {
+        "setup": [
+          { "tool": "find", "args": { "name": "Documents", "kind": "ListItem" } },
+          { "tool": "invoke", "args": { "id": "@exp:documents" } }
+        ],
+        "tool": "get_prop",
+        "args": { "id": "@exp:win", "prop": "Name" },
+        "check": "equals",
+        "value": "Documents"
+      }
+    },
+    {
+      "id": "settings-01-open-bluetooth-page",
+      "app": "settings",
+      "goal": "Open the Settings Bluetooth page and confirm the page name.",
+      "steps_hint": [
+        "app_launch(name='explorer', argv=['ms-settings:bluetooth'])",
+        "get_prop(id=setwin, prop='Name')"
+      ],
+      "expect": {
+        "setup": [
+          { "tool": "app_launch", "args": { "name": "explorer", "argv": ["ms-settings:bluetooth"] } }
+        ],
+        "tool": "get_prop",
+        "args": { "id": "@set:win", "prop": "Name" },
+        "check": "contains",
+        "value": "Bluetooth"
+      }
+    },
+    {
+      "id": "settings-02-toggle-wifi",
+      "app": "settings",
+      "goal": "Toggle the Wi-Fi switch with the Toggle pattern and read its state back.",
+      "steps_hint": [
+        "find(name='Wi-Fi', kind='Button')",
+        "toggle(id=wifi)",
+        "get_prop(id=wifi, prop='ToggleState')"
+      ],
+      "expect": {
+        "setup": [
+          { "tool": "find", "args": { "name": "Wi-Fi", "kind": "Button" } },
+          { "tool": "toggle", "args": { "id": "@set:wifi" } }
+        ],
+        "tool": "get_prop",
+        "args": { "id": "@set:wifi", "prop": "ToggleState" },
+        "check": "equals",
+        "value": "On"
+      }
+    },
+    {
+      "id": "chrome-dom-01-read-page-heading",
+      "app": "chrome-dom",
+      "goal": "Read a page through the DOM path (never desktop clicks on web content) and confirm the heading.",
+      "steps_hint": [
+        "scrape_dom(url_hint='https://example.com')"
+      ],
+      "expect": {
+        "setup": [
+          { "tool": "scrape_dom", "args": { "url_hint": "https://example.com" } }
+        ],
+        "tool": "scrape_dom",
+        "args": { "url_hint": "https://example.com" },
+        "check": "contains",
+        "value": "Example Domain"
+      }
+    },
+    {
+      "id": "chrome-dom-02-locate-submit-button",
+      "app": "chrome-dom",
+      "goal": "Locate the login submit button in the DOM by id before any act step.",
+      "steps_hint": [
+        "scrape_dom(url_hint='https://example.com/login')",
+        "find the element whose id is login-submit in the returned DOM"
+      ],
+      "expect": {
+        "setup": [
+          { "tool": "scrape_dom", "args": { "url_hint": "https://example.com/login" } }
+        ],
+        "tool": "scrape_dom",
+        "args": { "url_hint": "https://example.com/login" },
+        "check": "matches",
+        "regex": "id=\"login-submit\"",
+        "value": "<button id=\"login-submit\">Sign in</button>"
+      }
+    }
+  ]
+}

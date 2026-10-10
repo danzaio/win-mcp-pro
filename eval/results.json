@@ -1,0 +1,115 @@
+{
+  "success_rate": 1.0,
+  "passed": 12,
+  "total": 12,
+  "tasks": [
+    {
+      "id": "notepad-01-launch-and-list",
+      "app": "notepad",
+      "goal": "Launch Notepad and confirm its window is visible in the UIA tree.",
+      "ok": true,
+      "ms": 0.0,
+      "tokens_est": 30,
+      "reason": "found 'Notepad'"
+    },
+    {
+      "id": "notepad-02-type-and-readback",
+      "app": "notepad",
+      "goal": "Type a sentence into the Notepad edit control and read it back through the Value pattern.",
+      "ok": true,
+      "ms": 0.0,
+      "tokens_est": 7,
+      "reason": "expected 'hello from win-mcp-pro', got 'hello from win-mcp-pro'"
+    },
+    {
+      "id": "notepad-03-save-as-dialog",
+      "app": "notepad",
+      "goal": "Open File -> Save As and confirm the modal dialog resolved by name.",
+      "ok": true,
+      "ms": 0.0,
+      "tokens_est": 3,
+      "reason": "expected 'Save As', got 'Save As'"
+    },
+    {
+      "id": "calc-01-open-app",
+      "app": "calc",
+      "goal": "Launch Calculator and see its window in the tree.",
+      "ok": true,
+      "ms": 0.0,
+      "tokens_est": 30,
+      "reason": "found 'Calculator'"
+    },
+    {
+      "id": "calc-02-arithmetic-on-display",
+      "app": "calc",
+      "goal": "Enter 7*6= through the display's Value pattern and read the result back.",
+      "ok": true,
+      "ms": 0.0,
+      "tokens_est": 2,
+      "reason": "expected '42', got '42'"
+    },
+    {
+      "id": "calc-03-history-panel",
+      "app": "calc",
+      "goal": "Open the History menu and see the history entries in the dumped subtree.",
+      "ok": true,
+      "ms": 0.0,
+      "tokens_est": 8,
+      "reason": "found 'History'"
+    },
+    {
+      "id": "explorer-01-open-public-folder",
+      "app": "explorer",
+      "goal": "Open C:\\Users\\Public in Explorer and confirm the window title.",
+      "ok": true,
+      "ms": 0.0,
+      "tokens_est": 30,
+      "reason": "found 'Public'"
+    },
+    {
+      "id": "explorer-02-enter-folder-item",
+      "app": "explorer",
+      "goal": "Double-enter the Documents item with the Invoke pattern and read the new window title.",
+      "ok": true,
+      "ms": 0.0,
+      "tokens_est": 3,
+      "reason": "expected 'Documents', got 'Documents'"
+    },
+    {
+      "id": "settings-01-open-bluetooth-page",
+      "app": "settings",
+      "goal": "Open the Settings Bluetooth page and confirm the page name.",
+      "ok": true,
+      "ms": 0.0,
+      "tokens_est": 3,
+      "reason": "found 'Bluetooth'"
+    },
+    {
+      "id": "settings-02-toggle-wifi",
+      "app": "settings",
+      "goal": "Toggle the Wi-Fi switch with the Toggle pattern and read its state back.",
+      "ok": true,
+      "ms": 0.0,
+      "tokens_est": 2,
+      "reason": "expected 'On', got 'On'"
+    },
+    {
+      "id": "chrome-dom-01-read-page-heading",
+      "app": "chrome-dom",
+      "goal": "Read a page through the DOM path (never desktop clicks on web content) and confirm the heading.",
+      "ok": true,
+      "ms": 0.0,
+      "tokens_est": 17,
+      "reason": "found 'Example Domain'"
+    },
+    {
+      "id": "chrome-dom-02-locate-submit-button",
+      "app": "chrome-dom",
+      "goal": "Locate the login submit button in the DOM by id before any act step.",
+      "ok": true,
+      "ms": 0.0,
+      "tokens_est": 17,
+      "reason": "matched /id=\"login-submit\"/ at 35"
+    }
+  ]
+}

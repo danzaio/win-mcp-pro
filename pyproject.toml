@@ -1,0 +1,27 @@
+[project]
+name = "win-mcp-pro"
+version = "0.1.0"
+description = "Windows computer-use MCP server: UIA tree first, Control Patterns for actions, images only as opt-in fallback."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp",
+    "pydantic>=2",
+    "uiautomation",
+    "comtypes",
+    "pytest",
+]
+
+[project.optional-dependencies]
+dev = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["server", "tools"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
