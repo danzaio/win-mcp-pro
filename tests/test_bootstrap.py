@@ -178,3 +178,73 @@ def test_mcp_call_tool_unknown_tool_is_typed_error():
                 server_task.cancel()
 
     asyncio.run(drive())
+
+
+# --- production wiring (regression: boot served 0 tools) -----------------------
+
+
+def test_production_bridge_registers_every_tool_module():
+    import tools
+
+    try:
+        count = main._bridge_tools_to_registry()
+        assert count == len(tools.names()) == len(registry.registered_tools())
+        assert count > 0
+        assert len({t.name for t in registry.visible_tools()}) == count
+    finally:
+        tools.clear()
+
+
+def test_call_handler_supports_both_conventions():
+    def kwargs_style(*, name: str = "x") -> dict:
+        return {"ok": True, "name": name}
+
+    def dict_style(args) -> dict:
+        return {"ok": True, "echo": dict(args or {})}
+
+    def defaults_style(args, _extra=None) -> dict:
+        return {"ok": True}
+
+    assert main._call_handler(kwargs_style, {"name": "y"}) == {"ok": True, "name": "y"}
+    assert main._call_handler(dict_style, {"a": 1}) == {"ok": True, "echo": {"a": 1}}
+    assert main._call_handler(dict_style, {}) == {"ok": True, "echo": {}}
+    assert main._call_handler(defaults_style, {}) == {"ok": True}
+
+
+def test_call_handler_does_not_swallow_real_type_errors():
+    def broken(**kwargs) -> dict:
+        raise TypeError("boom inside")
+
+    with pytest.raises(TypeError, match="boom inside"):
+        main._call_handler(broken, {})
+
+
+def test_bridged_server_lists_and_calls_real_tool():
+    import tools
+
+    try:
+        count = main._bridge_tools_to_registry()
+        server = main.build_server()
+
+        async def drive():
+            async with create_client_server_memory_streams() as (client_streams, server_streams):
+                opts = server.create_initialization_options()
+                server_task = asyncio.create_task(
+                    server.run(*server_streams, opts, raise_exceptions=True)
+                )
+                try:
+                    async with ClientSession(*client_streams) as session:
+                        await session.initialize()
+                        listed = await session.list_tools()
+                        assert len(listed.tools) == count
+                        result = await session.call_tool(
+                            "exclude_proc", {"names": ["nope.exe"]}
+                        )
+                        assert result.is_error is False
+                        assert json.loads(result.content[0].text)["ok"] is True
+                finally:
+                    server_task.cancel()
+
+        asyncio.run(drive())
+    finally:
+        tools.clear()

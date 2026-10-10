@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import inspect
 import json
 from typing import Any
 
@@ -24,6 +25,52 @@ from . import registry
 from .audit import audit
 
 __all__ = ["build_server", "run_stdio_server", "main"]
+
+
+def _call_handler(handler: Any, arguments: dict) -> Any:
+    """Invoke a tool handler regardless of its calling convention.
+
+    Canonical handlers take ``**arguments``. The winproc/vision/compat
+    slices take a single positional dict instead. kwargs-first preserves
+    the 31 working tools; the fallback fixes the other 22 without
+    touching them.
+    """
+    try:
+        return handler(**arguments)
+    except TypeError as first_exc:
+        try:
+            sig = inspect.signature(handler)
+        except (ValueError, TypeError):
+            raise first_exc
+        params = list(sig.parameters.values())
+        if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params):
+            raise first_exc
+        positional = [
+            p
+            for p in params
+            if p.kind
+            in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ]
+        required = [p for p in positional if p.default is inspect.Parameter.empty]
+        if len(params) == 1 or (len(required) == 1 and positional and params[0] is positional[0]):
+            return handler(arguments)
+        raise first_exc
+
+
+def _bridge_tools_to_registry() -> int:
+    """Production wiring: discover tool modules and publish to the server registry.
+
+    ``tools.load_all_modules()`` fills ``tools.TOOL_REGISTRY``; ``build_server``
+    reads ``server.registry``. Without this bridge the server lists 0 tools.
+    Idempotent: clears both sides first so a second boot does not clash.
+    """
+    import tools
+
+    tools.clear()
+    registry.reset_registry()
+    tools.load_all_modules()
+    registry.register_module(tools.TOOL_REGISTRY)
+    return len(registry.registered_tools())
 
 
 def _tool_schema(tdef: registry.ToolDef) -> dict:
@@ -80,7 +127,7 @@ def build_server(
                 is_error=True,
             )
         try:
-            result = tdef.handler(**arguments)
+            result = _call_handler(tdef.handler, arguments)
             if asyncio.iscoroutine(result):
                 result = await result
         except Exception as exc:
@@ -123,17 +170,16 @@ def run_stdio_server(
     blocklist: list[str] | None = None,
 ) -> None:
     """Serve MCP on stdio until the client closes the connection."""
-    import tools
-
-    tools.load_all_modules()  # production boot discovers every tool module;
+    count = _bridge_tools_to_registry()
     # build_server() alone stays lazy so in-memory test sessions control
-    # exactly which tools exist.
+    # exactly which tools exist; production always bridges first.
     server = build_server(allowlist, blocklist)
     audit(
         {
             "event": "server_start",
             "allowlist": allowlist,
             "blocklist": blocklist,
+            "tools": count,
         }
     )
     asyncio.run(_serve(server))
