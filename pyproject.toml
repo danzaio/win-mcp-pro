@@ -9,6 +9,8 @@ dependencies = [
     "pydantic>=2",
     "uiautomation",
     "comtypes",
+    "mss",
+    "pillow",
     "pytest",
 ]
 

@@ -42,7 +42,9 @@ flowchart LR
     Act --> Win[winproc.py<br/>windows + processes]
     Act --> Sys[system.py<br/>shell + fs + registry]
     Act --> Txn[transact.py<br/>preview + idempotence]
+    Act --> Vis[vision.py<br/>screenshot + zoom fallback]
     Pat & Val & Win & Sys & Txn --> UIA[Windows UI Automation]
+    Vis --> PNG[PNG files<br/>path, never blobs]
 ```
 
 ```
@@ -69,6 +71,7 @@ flowchart LR
  |                                          tools/transact.py          |
  |                                          tools/winproc.py            |
  |                                          tools/system.py             |
+                                            tools/vision.py (fallback)  |
  +--------------------------------------------------------------------+
       |
       v
@@ -84,7 +87,7 @@ Three rules hold the design together:
 
 ### Tools
 
-Seven groups. The design names the tools below; `tools.load_all_modules()` reports **37 registered today**, and the window and process group is the part still landing. A module exposes `TOOLS` with a pydantic v2 `schema` per tool, and the registry picks modules up by filename at startup, so a new `tools/<group>.py` needs no wiring. Check the live list before trusting this table:
+Ten groups. The design names the tools below; `tools.load_all_modules()` reports **53 registered today**. A module exposes `TOOLS` with a pydantic v2 `schema` per tool, and the registry picks modules up by filename at startup, so a new `tools/<group>.py` needs no wiring. Check the live list before trusting this table:
 
 ```
 .venv\Scripts\python -c "import tools; tools.load_all_modules(); print(len(tools.names()))"
@@ -101,6 +104,7 @@ Two results from that command look like a broken repo and are not. `ImportError:
 | Window / process | `app_launch`, `win_move`, `win_resize`, `win_min`, `win_max`, `win_snap`, `get_hwnd_pid_path`, `proc_tree`, `is_elevated`, `integrity_level`, `exclude_proc`, `kill_proc` |
 | System | `powershell`, `fs_list`, `fs_read`, `fs_write`, `registry_get`, `notify`, `scrape_dom` |
 | Transaction | `preview`, `dry_run`, `before_after`, `profile` |
+| Vision (fallback) | `screenshot`, `zoom` |
 
 Target apps: Notepad, Calc, Explorer, Settings, and Chrome/Edge through the DOM. Browser automation goes through `scrape_dom` and the DOM only. Clicking a web page with desktop coordinates is not supported on purpose.
 
@@ -231,7 +235,7 @@ UIA enumerates more when the process is elevated, and an unelevated server canno
 
 ## 8. Tradeoffs
 
-**The tree is a narrower world than the screen.** Anything without a UIA provider is invisible: Canvas, WebGL, games, some Electron builds. That is the price of not paying for images. When the tree cannot see it, the honest answer is `NOT_FOUND`, not a guess.
+**The tree is a narrower world than the screen — so there is a fallback.** Anything without a UIA provider is invisible to the tree: Canvas, WebGL, games, some Electron builds. Vision-only agents (Microsoft's OmniParser and friends) pay image tokens on *every* step to cover that ground. Here the order is reversed: tree first, image only when the tree answers `NOT_FOUND`. The `screenshot` and `zoom` tools write a PNG to disk and hand back a path, never a base64 blob in context — same coverage as pure-vision agents where it matters, a fraction of the token bill everywhere else.
 
 **stdio keeps v1 simple and single-client.** No network surface, no auth to get wrong, one client at a time. Remote use needs Streamable HTTP with a bearer token, an IP allowlist, TLS, and OAuth PKCE. That is documented as an extension, not shipped here.
 
