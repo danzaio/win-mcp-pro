@@ -4,7 +4,7 @@
 python bench/run_matrix.py
 ```
 
-Spawns disposable fixtures and the MCP server over stdio, then runs 11
+Spawns disposable fixtures and the MCP server over stdio, then runs 13
 deterministic tasks. Every observable effect is written by the fixture
 process itself to a JSONL log; the runner asserts against those logs (the
 external oracle), so a green run means the effect happened in the
@@ -23,7 +23,12 @@ Fixtures:
 
 Tasks: identity find, set_value + readback, invoke, wait_text,
 wait_enabled, frame-pinned click, unknown-frame refusal, wrong-target
-refusal + leak check, dump_tree, ocr_read, Tk coordinate click.
+refusal + leak check, dump_tree, ocr_read, Tk coordinate click, replay
+with id binding, doctor.
+
+Run it on an idle desktop: it moves the real cursor and asserts effects on
+its own windows; concurrent physical mouse activity can disrupt a synthetic
+click.
 
 Results land in `bench/results/bench-<stamp>.{json,md}`; the exit code is
 non-zero if any task fails. `--only T01,T06` runs a subset while debugging.

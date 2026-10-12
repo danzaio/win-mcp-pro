@@ -11,7 +11,7 @@ Give your MCP client access to Windows controls, not just screenshots. win-mcp-p
 
 Separate screenshot, mouse and keyboard tools let the client work by coordinates when an app doesn't expose useful controls; by default that input is bound to the element it intends and verified before anything is sent. Window and process tools, clipboard access, file operations and PowerShell cover tasks outside the UI too.
 
-The server runs on your Windows PC over stdio, using your existing MCP client for reasoning. It has 61 registered tools; you choose which ones to expose.
+The server runs on your Windows PC over stdio, using your existing MCP client for reasoning. It has 63 registered tools; you choose which ones to expose.
 
 ![A local MCP client calls win-mcp-pro over stdio to inspect and act on Windows app controls through UI Automation.](docs/diagrams/architecture.svg)
 
@@ -86,7 +86,7 @@ The starter configuration doesn't allow writes or clicks. Add `set_value`, `invo
 
 ## Tools
 
-There are 61 registered tools across 12 modules. Your MCP client receives their argument schemas through `tools/list`.
+There are 63 registered tools across 14 modules. Your MCP client receives their argument schemas through `tools/list`.
 
 | Group | Tools |
 | --- | --- |
@@ -100,6 +100,7 @@ There are 61 registered tools across 12 modules. Your MCP client receives their 
 | Images | `screenshot`, `zoom` |
 | OCR | `ocr_read` |
 | Browser (isolated) | `browser_open`, `browser_status`, `browser_snapshot`, `browser_click`, `browser_fill`, `browser_read`, `browser_close` |
+| Replay and diagnostics | `replay`, `doctor` |
 
 \* `scrape_dom` has no shipped browser backend and returns `NO_DOM_BACKEND` unless one is supplied separately.
 
@@ -156,7 +157,7 @@ Install the development extra and run the unit and offline runner tests:
 .\.venv\Scripts\python.exe -m pytest tests eval/test_smoke.py -q
 ```
 
-The local validation on 12 October 2026 passed **468 tests**, with the opt-in live tests skipped in that run; all four live files were run separately and passed. A built wheel was also installed in a clean environment and checked through a real MCP stdio connection.
+The local validation on 12 October 2026 passed **480 tests**, with the opt-in live tests skipped in that run; all four live files were run separately and passed. A built wheel was also installed in a clean environment and checked through a real MCP stdio connection. `docs/parity.md` maps each advertised capability to the test or bench task that proves it.
 
 The live test creates its own disposable WinForms window. It checks scoped snapshots, value writes and button invocation with fresh readback, then closes its own processes. It is not a claim that every Windows application has been tested.
 
@@ -215,7 +216,7 @@ The 12-task eval uses `FakeClient` fixtures. It checks the runner and its expect
 .\.venv\Scripts\python.exe eval/run.py --min-success 0.8 --out "$env:TEMP\win-mcp-pro-eval.json"
 ```
 
-The bench matrix drives two WinForms fixtures and a Tk fixture (no UIA tree) with an external oracle: every effect is asserted from the fixtures' own JSONL logs, and a decoy fixture proves zero wrong-target leakage. It runs 11 driver-conformance tasks and writes `bench/results/`:
+The bench matrix drives two WinForms fixtures and a Tk fixture (no UIA tree) with an external oracle: every effect is asserted from the fixtures' own JSONL logs, and a decoy fixture proves zero wrong-target leakage. It runs 13 driver-conformance tasks and writes `bench/results/`:
 
 ```powershell
 .\.venv\Scripts\python.exe bench/run_matrix.py
@@ -228,6 +229,7 @@ The [CI workflow](.github/workflows/eval-gate.yml) runs the Windows unit suite a
 ## Documentation
 
 - [Operations guide](docs/SOP.md): configuration, troubleshooting and deployment notes.
+- [Parity and evidence](docs/parity.md): what each capability claim is proven by.
 - [Terminal demo](demo/script.md): commands for a short walkthrough.
 - [Tool implementations](tools): schemas and handlers for each tool group.
 

@@ -105,6 +105,10 @@ The `browser_*` tools drive an isolated Chromium (Edge/Chrome) over the DevTools
 - The user's own browser profile is never used or attached; there is no option to attach to it in this version.
 - `WINMCP_BROWSER_PATH` points at a specific Chromium binary when auto-detection fails.
 
+## Replay and doctor
+
+`replay` re-runs a recorded flow with assertions: each step names a tool, its args (a string arg `@id:N` binds the element id produced by step N) and optional expected top-level result values. A mismatch stops with `DRIFT` (step, key, expected, actual); an unresolvable binding refuses as `AMBIGUOUS_ID`; a step that answered `ok=false` without expectations is drift too. `doctor` reports environment readiness (interpreter, dependencies, Chromium, OCR languages, UIA). `docs/parity.md` maps every capability to the test or bench task that proves it.
+
 ## Bench matrix
 
 `python bench/run_matrix.py` runs the driver-conformance matrix: disposable WinForms + Tk fixtures log every observable effect to their own JSONL files and the runner asserts against those logs (external oracle), with a decoy fixture proving zero wrong-target leakage. Results land in `bench/results/`; the exit code is non-zero if any task fails. It is opt-in and not part of CI (CI runs the unit suite and the offline eval). See `bench/README.md`.

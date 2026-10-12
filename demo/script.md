@@ -84,7 +84,7 @@ Start the server with the read-only tool allowlist. It sits in the foreground an
 Expected, on stderr, one JSON line:
 
 ```
-{"ts": "<timestamp>", "event": "server_start", "allowlist": ["dump_tree", "find", "get_patterns", "get_prop", "list_windows", "snapshot"], "blocklist": null, "tools": 61}
+{"ts": "<timestamp>", "event": "server_start", "allowlist": ["dump_tree", "find", "get_patterns", "get_prop", "list_windows", "snapshot"], "blocklist": null, "tools": 63}
 ```
 
 Point out the allowlist and that stdout remains reserved for JSON-RPC. The log contains tool and field names, not argument values or proof of effects.
