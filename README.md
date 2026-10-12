@@ -11,7 +11,7 @@ Give your MCP client access to Windows controls, not just screenshots. win-mcp-p
 
 Separate screenshot, mouse and keyboard tools let the client work by coordinates when an app doesn't expose useful controls; by default that input is bound to the element it intends and verified before anything is sent. Window and process tools, clipboard access, file operations and PowerShell cover tasks outside the UI too.
 
-The server runs on your Windows PC over stdio, using your existing MCP client for reasoning. It has 53 registered tools; you choose which ones to expose.
+The server runs on your Windows PC over stdio, using your existing MCP client for reasoning. It has 60 registered tools; you choose which ones to expose.
 
 ![A local MCP client calls win-mcp-pro over stdio to inspect and act on Windows app controls through UI Automation.](docs/diagrams/architecture.svg)
 
@@ -86,7 +86,7 @@ The starter configuration doesn't allow writes or clicks. Add `set_value`, `invo
 
 ## Tools
 
-There are 53 registered tools across 10 modules. Your MCP client receives their argument schemas through `tools/list`.
+There are 60 registered tools across 11 modules. Your MCP client receives their argument schemas through `tools/list`.
 
 | Group | Tools |
 | --- | --- |
@@ -98,6 +98,7 @@ There are 53 registered tools across 10 modules. Your MCP client receives their 
 | System | `powershell`, `fs_list`, `fs_read`, `fs_write`, `registry_get`, `notify`, `scrape_dom`* |
 | Transaction helpers | `preview`, `dry_run`, `before_after`, `profile` |
 | Images | `screenshot`, `zoom` |
+| Browser (isolated) | `browser_open`, `browser_status`, `browser_snapshot`, `browser_click`, `browser_fill`, `browser_read`, `browser_close` |
 
 \* `scrape_dom` has no shipped browser backend and returns `NO_DOM_BACKEND` unless one is supplied separately.
 
@@ -129,6 +130,10 @@ The server sets per-monitor DPI awareness at startup so UIA rectangles, captures
 
 The server writes JSONL invocation metadata to stderr: tool names, argument field names and success or error events. It does not keep a durable action history or verify UI effects on your behalf.
 
+### Browser (isolated session)
+
+`browser_open`, `browser_snapshot`, `browser_click`, `browser_fill`, `browser_read`, `browser_status` and `browser_close` drive a Chromium browser (Edge or Chrome, whichever is installed) through the DevTools protocol. The browser starts with a throwaway profile under the temp directory - it never touches your own browser session, cookies or logins. Clicks are dispatched inside the browser at the element's box center (no OS-level mouse input), and refs are validated before acting: an unknown ref refuses, and a node that disappeared refuses as `STALE_REF` instead of clicking somewhere else. First launch is headless by default (`browser_open(headless=false)` shows the window); `WINMCP_BROWSER_PATH` overrides the browser binary. `browser_open` and `browser_status` report the browser process id, so the same window can also be found through `list_windows`/`find` and addressed from both surfaces.
+
 ## Compatibility
 
 UI inspection depends on the application's UI Automation provider. Standard accessible controls are the intended target. Custom canvases, games and some Electron interfaces may expose little useful data.
@@ -139,7 +144,7 @@ Snapshot caching is used only when the installed UIA library and control support
 
 `exclude_proc` skips matching executable names in full-mode snapshot traversal, including explicit roots. Process-name lookup is best-effort, so exclusions are a traversal aid, not an access-control boundary.
 
-Browser DOM automation and a network transport are not included. This package serves a local MCP client over stdio.
+Browser automation runs in an isolated session with a disposable profile (see the `browser_*` tools); it never attaches to your own browser profile. A network transport is not included: this package serves a local MCP client over stdio.
 
 ## Testing
 
@@ -150,7 +155,7 @@ Install the development extra and run the unit and offline runner tests:
 .\.venv\Scripts\python.exe -m pytest tests eval/test_smoke.py -q
 ```
 
-The local validation on 12 October 2026 passed **437 tests**, with the two opt-in live tests skipped in that run; both were run separately and passed. A built wheel was also installed in a clean environment and checked through a real MCP stdio connection.
+The local validation on 12 October 2026 passed **452 tests**, with the three opt-in live tests skipped in that run; all three were run separately and passed. A built wheel was also installed in a clean environment and checked through a real MCP stdio connection.
 
 The live test creates its own disposable WinForms window. It checks scoped snapshots, value writes and button invocation with fresh readback, then closes its own processes. It is not a claim that every Windows application has been tested.
 
@@ -175,6 +180,19 @@ try {
     .\.venv\Scripts\python.exe -m pytest tests/test_live_click_binding.py -q
 } finally {
     $env:WINMCP_RUN_LIVE_CLICK = $null
+}
+```
+
+The browser live test launches the installed Edge/Chrome headless with a
+disposable profile, drives a `data:` page through the MCP route and asserts
+the click effect from the page itself:
+
+```powershell
+$env:WINMCP_RUN_LIVE_BROWSER = "1"
+try {
+    .\.venv\Scripts\python.exe -m pytest tests/test_live_browser.py -q
+} finally {
+    $env:WINMCP_RUN_LIVE_BROWSER = $null
 }
 ```
 

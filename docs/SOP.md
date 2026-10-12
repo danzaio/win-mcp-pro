@@ -95,6 +95,16 @@ Opt-in via `--uia-worker`: the tree walks (`snapshot`, `find`, `dump_tree`) run 
 - Ids minted before a kill keep resolving when they carry native identity (`hwnd:runtimeid`); digest-only ids may come back `NOT_FOUND`.
 - Input never runs in the worker; safe-profile verification stays in the server process, so a killed worker can never abandon a half-sent gesture.
 
+## Browser mode
+
+The `browser_*` tools drive an isolated Chromium (Edge/Chrome) over the DevTools protocol.
+
+- Launch: the first `browser_open` starts the browser headless with a disposable profile under the temp dir; `headless=false` shows the window instead. `browser_close` kills it and deletes the profile; an `atexit` hook does the same when the server exits.
+- Refs: `browser_snapshot` lists accessibility nodes with refs (`b1`, ...). `browser_click` / `browser_fill` / `browser_read` take a ref; an unknown ref refuses (`UNKNOWN_REF`) without touching the browser, and a node that no longer resolves refuses as `STALE_REF`.
+- No OS input: clicks are `Input.dispatchMouseEvent` inside the browser; the desktop cursor and foreground window are never touched.
+- The user's own browser profile is never used or attached; there is no option to attach to it in this version.
+- `WINMCP_BROWSER_PATH` points at a specific Chromium binary when auto-detection fails.
+
 ## When to use the vision fallback
 
 `screenshot` and `zoom` capture the selected display and save PNGs under the system temp directory. When the PNG fits the inline cap (4 MB), the same bytes are delivered as an MCP image content block; over the cap the result keeps the path only, with a reason. Each result reports the display origin and a short-lived frame id (`click`/`drag`/`scroll` accept `frame=...`); stale frames are refused with `FRAME_STALE` before any input. Their calls do not record a reason, and no cost or human-confirmation gate is enforced. They are excluded by the read-only allowlist above.
@@ -120,7 +130,7 @@ Work top to bottom. Do not skip.
 9. An action appears to have no effect: stderr records the tool and field names, not the resulting UI state. Read the tool response and independently inspect the target; the stderr line is not proof of an effect.
 10. `transact` helpers are separate tools. Direct UIA and compatibility actions do not go through their preview or deduplication pipeline.
 11. Client connects but sees **zero tools**: check the `--tools` allowlist first, then inspect the `server_start` stderr event and run the registry count command in step 2. Import failures stop server startup.
-12. `scrape_dom` returns `NO_DOM_BACKEND`: expected in this package; a production browser adapter is not included.
+12. `scrape_dom` returns `NO_DOM_BACKEND`: expected - it is a stub. Use the `browser_*` tools for DOM automation; they drive an isolated browser and never attach to your own session.
 13. Reproduce the offline smoke set with `python eval/run.py --out <temp-path>`. Its canned client is not a live desktop test.
 
 ## Repo hygiene
@@ -131,7 +141,7 @@ Work top to bottom. Do not skip.
 ## Known gaps
 
 - No UIA provider means invisible. By design and documented, not a defect to chase.
-- There is no live UI evaluation or browser DOM backend in this package. The golden set runs against canned responses.
+- There is no live UI evaluation in this package. The golden set runs against canned responses. Browser DOM automation exists through the isolated `browser_*` tools (their live test is opt-in, like the UIA ones).
 - Text selection through the tree is not supported (inherited UIA limitation).
 - Type with `set_value` or `paste_text`. There is no character-by-character typing.
 - Adding a tool: create `tools/<group>.py` exposing `TOOLS` with `name`, `description`, `schema` (a pydantic model class) and `handler`. `tools.load_all_modules()` finds it by filename. The registry is the single source of truth, in registration order.
