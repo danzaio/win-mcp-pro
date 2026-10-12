@@ -11,7 +11,7 @@ Give your MCP client access to Windows controls, not just screenshots. win-mcp-p
 
 Separate screenshot, mouse and keyboard tools let the client work by coordinates when an app doesn't expose useful controls; by default that input is bound to the element it intends and verified before anything is sent. Window and process tools, clipboard access, file operations and PowerShell cover tasks outside the UI too.
 
-The server runs on your Windows PC over stdio, using your existing MCP client for reasoning. It has 60 registered tools; you choose which ones to expose.
+The server runs on your Windows PC over stdio, using your existing MCP client for reasoning. It has 61 registered tools; you choose which ones to expose.
 
 ![A local MCP client calls win-mcp-pro over stdio to inspect and act on Windows app controls through UI Automation.](docs/diagrams/architecture.svg)
 
@@ -86,7 +86,7 @@ The starter configuration doesn't allow writes or clicks. Add `set_value`, `invo
 
 ## Tools
 
-There are 60 registered tools across 11 modules. Your MCP client receives their argument schemas through `tools/list`.
+There are 61 registered tools across 12 modules. Your MCP client receives their argument schemas through `tools/list`.
 
 | Group | Tools |
 | --- | --- |
@@ -98,6 +98,7 @@ There are 60 registered tools across 11 modules. Your MCP client receives their 
 | System | `powershell`, `fs_list`, `fs_read`, `fs_write`, `registry_get`, `notify`, `scrape_dom`* |
 | Transaction helpers | `preview`, `dry_run`, `before_after`, `profile` |
 | Images | `screenshot`, `zoom` |
+| OCR | `ocr_read` |
 | Browser (isolated) | `browser_open`, `browser_status`, `browser_snapshot`, `browser_click`, `browser_fill`, `browser_read`, `browser_close` |
 
 \* `scrape_dom` has no shipped browser backend and returns `NO_DOM_BACKEND` unless one is supplied separately.
@@ -138,7 +139,7 @@ The server writes JSONL invocation metadata to stderr: tool names, argument fiel
 
 UI inspection depends on the application's UI Automation provider. Standard accessible controls are the intended target. Custom canvases, games and some Electron interfaces may expose little useful data.
 
-`screenshot` and `zoom` save PNG files and return their paths. When the PNG fits the inline cap (4 MB), the same bytes also ride back as an MCP image content block; over the cap the result keeps the path only, with a reason. Each capture reports its display origin and a short-lived frame id: input tools accept `frame=...` so a click follows a fresh look, and a stale frame is refused instead of clicking at old pixels. The server doesn't automatically switch to screenshots when UIA cannot find a control.
+`screenshot` and `zoom` save PNG files and return their paths. When the PNG fits the inline cap (4 MB), the same bytes also ride back as an MCP image content block; over the cap the result keeps the path only, with a reason. Each capture reports its display origin and a short-lived frame id: input tools accept `frame=...` so a click follows a fresh look, and a stale frame is refused instead of clicking at old pixels. When the tree has no text at all, `ocr_read` recognizes text from pixels (Windows OCR) and returns per-line/per-word boxes plus the same kind of frame, so a word can be clicked through the frame-pinned path. The server doesn't automatically switch to screenshots when UIA cannot find a control.
 
 Snapshot caching is used only when the installed UIA library and control support it. Otherwise the tree is read directly. Time budgets are checked between UIA calls; they cannot interrupt a blocked COM call. `find` and `dump_tree` have depth and node limits, not hard wall-clock deadlines.
 
@@ -155,7 +156,7 @@ Install the development extra and run the unit and offline runner tests:
 .\.venv\Scripts\python.exe -m pytest tests eval/test_smoke.py -q
 ```
 
-The local validation on 12 October 2026 passed **452 tests**, with the three opt-in live tests skipped in that run; all three were run separately and passed. A built wheel was also installed in a clean environment and checked through a real MCP stdio connection.
+The local validation on 12 October 2026 passed **460 tests**, with the opt-in live tests skipped in that run; all four live files were run separately and passed. A built wheel was also installed in a clean environment and checked through a real MCP stdio connection.
 
 The live test creates its own disposable WinForms window. It checks scoped snapshots, value writes and button invocation with fresh readback, then closes its own processes. It is not a claim that every Windows application has been tested.
 
@@ -193,6 +194,18 @@ try {
     .\.venv\Scripts\python.exe -m pytest tests/test_live_browser.py -q
 } finally {
     $env:WINMCP_RUN_LIVE_BROWSER = $null
+}
+```
+
+The OCR live test runs the real Windows OCR engine over a synthetic image
+(no desktop capture):
+
+```powershell
+$env:WINMCP_RUN_LIVE_OCR = "1"
+try {
+    .\.venv\Scripts\python.exe -m pytest tests/test_live_ocr.py -q
+} finally {
+    $env:WINMCP_RUN_LIVE_OCR = $null
 }
 ```
 

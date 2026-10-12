@@ -109,6 +109,8 @@ The `browser_*` tools drive an isolated Chromium (Edge/Chrome) over the DevTools
 
 `screenshot` and `zoom` capture the selected display and save PNGs under the system temp directory. When the PNG fits the inline cap (4 MB), the same bytes are delivered as an MCP image content block; over the cap the result keeps the path only, with a reason. Each result reports the display origin and a short-lived frame id (`click`/`drag`/`scroll` accept `frame=...`); stale frames are refused with `FRAME_STALE` before any input. Their calls do not record a reason, and no cost or human-confirmation gate is enforced. They are excluded by the read-only allowlist above.
 
+`ocr_read` captures a monitor or region and recognizes its text with Windows OCR (`winsdk`); the result carries per-line and per-word bounding boxes plus a frame id, so a word box center can be clicked through the frame-pinned path. Without an OCR language pack for the user profile it returns `NO_OCR_LANGUAGE`.
+
 - Canvas, WebGL, or a custom-rendered surface with no UIA provider.
 - An icon or glyph with no accessible name at all.
 - A target `find` returns `NOT_FOUND` for, after you confirmed the element exists on screen.
