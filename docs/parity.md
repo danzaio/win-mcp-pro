@@ -38,6 +38,15 @@ our version of it lives:
 | Environment doctor (deps, browser, OCR languages, UIA) | `tests/test_doctor.py`; bench task T13 |
 | Packaging: clean wheel, `pip check`, stdio smokes, CI | wheel smoke evidence in this session; CI run `38299852835` |
 
+## Audit note
+
+Audited 2026-10-12 against this tree: the README tool count (63 across 14
+modules) was counted from the live registry (`tools.load_all_modules()`);
+test counts come from the suite run recorded in the README; every CI run
+listed here was checked with `gh run view`. The README was re-read line by
+line and its wording corrected where the scope grew (browser/OCR/replay
+sections, live-test pluralization).
+
 ## Not claimed
 
 - No head-to-head benchmark against other MCP servers: competitors were

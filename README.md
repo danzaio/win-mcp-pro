@@ -159,7 +159,7 @@ Install the development extra and run the unit and offline runner tests:
 
 The local validation on 12 October 2026 passed **480 tests**, with the opt-in live tests skipped in that run; all four live files were run separately and passed. A built wheel was also installed in a clean environment and checked through a real MCP stdio connection. `docs/parity.md` maps each advertised capability to the test or bench task that proves it.
 
-The live test creates its own disposable WinForms window. It checks scoped snapshots, value writes and button invocation with fresh readback, then closes its own processes. It is not a claim that every Windows application has been tested.
+The UIA live test creates its own disposable WinForms window. It checks scoped snapshots, value writes and button invocation with fresh readback, then closes its own processes. It is not a claim that every Windows application has been tested.
 
 To run it:
 
