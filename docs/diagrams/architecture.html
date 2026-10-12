@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>win-mcp-pro · Windows UI Automation</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --color-paper: #f8fafc;
+      --color-paper-2: #ffffff;
+      --color-ink: #172033;
+      --color-muted: #526078;
+      --color-soft: #526078;
+      --color-rule: #cbd5e1;
+      --color-accent: #0067b8;
+      --color-accent-tint: #e8f2fc;
+      --font-sans: 'Geist', system-ui, sans-serif;
+      --font-serif: 'Instrument Serif', 'Noto Serif', serif;
+      --font-mono: 'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      margin: 0;
+      padding: 32px 24px;
+      background: var(--color-paper);
+      color: var(--color-ink);
+      font-family: var(--font-sans);
+    }
+    .frame { max-width: 960px; min-width: 0; margin: auto; }
+    h1 { margin: 0 0 16px; font: 400 28px var(--font-serif); }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    svg { width: 100%; min-width: 960px; display: block; }
+    .headline { font: 400 28px var(--font-serif); fill: var(--color-ink); }
+    .node-name { font: 600 12px var(--font-sans); fill: var(--color-ink); }
+    .sublabel { font: 400 9px var(--font-mono); fill: var(--color-muted); }
+    .tag { font: 500 8px var(--font-mono); letter-spacing: 0.08em; fill: var(--color-muted); }
+    .note { font: 400 11px var(--font-sans); fill: var(--color-muted); }
+    .caption { margin: 16px 0 0; font-size: 13px; color: var(--color-muted); }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <main class="frame">
+    <h1>win-mcp-pro</h1>
+    <div class="diagram-container">
+      <svg viewBox="0 0 960 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="architecture-title architecture-desc">
+        <title id="architecture-title">Windows controls, not just pixels.</title>
+        <desc id="architecture-desc">A local MCP client calls win-mcp-pro over stdio to inspect and act on Windows app controls through UI Automation.</desc>
+        <!-- Layout adapted from cathrynlavery/diagram-design (MIT); see NOTICE.txt. -->
+        <defs>
+          <marker id="architecture-arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#526078"/>
+          </marker>
+        </defs>
+        <rect width="960" height="400" fill="#f8fafc"/>
+        <text x="48" y="44" class="tag">WIN-MCP-PRO / THE UIA PATH</text>
+        <text x="48" y="84" class="headline">Windows controls, not just pixels.</text>
+        <text x="48" y="108" class="note">A local connection to the controls your app exposes.</text>
+
+        <!-- Request direction; results return over the same local connection. -->
+        <line x1="208" y1="200" x2="240" y2="200" stroke="#526078" stroke-width="1.2" marker-end="url(#architecture-arrow)"/>
+        <line x1="440" y1="200" x2="472" y2="200" stroke="#526078" stroke-width="1.2" marker-end="url(#architecture-arrow)"/>
+        <line x1="652" y1="200" x2="684" y2="200" stroke="#526078" stroke-width="1.2" marker-end="url(#architecture-arrow)"/>
+
+        <g data-node="client">
+          <rect x="48" y="152" width="160" height="96" rx="6" fill="#ffffff" stroke="#172033" stroke-width="1"/>
+          <text x="64" y="176" class="tag">CLIENT</text>
+          <text x="64" y="200" class="node-name">Your MCP client</text>
+          <text x="64" y="224" class="sublabel">MCP over stdio</text>
+        </g>
+        <g data-node="server">
+          <rect x="240" y="136" width="200" height="128" rx="6" fill="#e8f2fc" stroke="#0067b8" stroke-width="1"/>
+          <text x="256" y="160" class="tag">LOCAL PYTHON SERVER</text>
+          <text x="256" y="184" class="node-name">win-mcp-pro</text>
+          <text x="256" y="208" class="sublabel">tools/list · tools/call</text>
+          <text x="256" y="232" class="sublabel">--tools / --exclude-tools</text>
+        </g>
+        <g data-node="uia">
+          <rect x="472" y="152" width="180" height="96" rx="6" fill="#ffffff" stroke="#172033" stroke-width="1"/>
+          <text x="488" y="176" class="tag">WINDOWS API</text>
+          <text x="488" y="200" class="node-name">UI Automation</text>
+          <text x="488" y="224" class="sublabel">Properties + patterns</text>
+        </g>
+        <g data-node="controls">
+          <rect x="684" y="152" width="224" height="96" rx="6" fill="#ffffff" stroke="#526078" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="700" y="176" class="tag">APP PROVIDER</text>
+          <text x="700" y="200" class="node-name">Windows app controls</text>
+          <text x="700" y="224" class="sublabel">ValuePattern · InvokePattern</text>
+        </g>
+
+        <text x="48" y="300" class="note">Inspect first. Enable actions deliberately. Read back the result.</text>
+        <line x1="48" y1="332" x2="908" y2="332" stroke="#cbd5e1" stroke-width="1"/>
+        <rect x="48" y="352" width="12" height="12" rx="2" fill="#e8f2fc" stroke="#0067b8" stroke-width="1"/>
+        <text x="72" y="362" class="note">MCP server</text>
+        <rect x="192" y="352" width="12" height="12" rx="2" fill="#ffffff" stroke="#526078" stroke-width="1" stroke-dasharray="4,3"/>
+        <text x="216" y="362" class="note">App-provided controls</text>
+        <text x="908" y="362" class="note" text-anchor="end">Available actions depend on the app's UIA provider.</text>
+      </svg>
+    </div>
+    <p class="caption">UIA path only. Screenshots and system tools are separate. Tool filters are not an OS sandbox.</p>
+  </main>
+</body>
+</html>

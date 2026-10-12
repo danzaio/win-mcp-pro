@@ -1,6 +1,6 @@
 # win-mcp-pro
 
-**Windows UI Automation for MCP clients.**
+**Local computer use for Windows, through MCP.**
 
 ![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB)
@@ -9,7 +9,11 @@
 
 Give your MCP client access to Windows controls, not just screenshots. win-mcp-pro reads the accessibility tree and finds controls by name or AutomationId. When a control exposes a UIA pattern, the client can use it to set a value, press a button or select an item.
 
-The server runs locally over stdio. Its 53 registered tools cover UI inspection, window management and actions, with separate tools for screenshots and system tasks.
+Separate screenshot, mouse and keyboard tools let the client work by coordinates when an app doesn't expose useful controls. Window and process tools, clipboard access, file operations and PowerShell cover tasks outside the UI too.
+
+The server runs on your Windows PC over stdio, using your existing MCP client for reasoning. It has 53 registered tools; you choose which ones to expose.
+
+![A local MCP client calls win-mcp-pro over stdio to inspect and act on Windows app controls through UI Automation.](docs/diagrams/architecture.svg)
 
 [Install](#install) · [Connect your client](#connect-your-client) · [Tools](#tools) · [Permissions](#permissions) · [Testing](#testing)
 
