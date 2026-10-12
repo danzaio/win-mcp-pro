@@ -18,7 +18,7 @@ The server runs locally over stdio. Its 53 registered tools cover UI inspection,
 
 ## Install
 
-You need Windows 10 or 11, Python 3.11 or newer, and Git. The repository is currently private, so cloning requires GitHub access.
+You need Windows 10 or 11, Python 3.11 or newer, and Git.
 
 Run these commands in PowerShell:
 
