@@ -157,7 +157,7 @@ The 12-task eval uses `FakeClient` fixtures. It checks the runner and its expect
 .\.venv\Scripts\python.exe eval/run.py --min-success 0.8 --out "$env:TEMP\win-mcp-pro-eval.json"
 ```
 
-The [CI workflow](.github/workflows/eval-gate.yml) runs the Windows unit suite and offline eval checks. It does not run the opt-in live UIA test. The current local candidate has not yet been run through GitHub Actions.
+The [CI workflow](.github/workflows/eval-gate.yml) runs the Windows unit suite and offline eval checks. It does not run the opt-in live UIA test. See [GitHub Actions](https://github.com/danzaio/win-mcp-pro/actions/workflows/eval-gate.yml) for recent runs.
 
 ## Documentation
 
