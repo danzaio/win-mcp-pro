@@ -105,6 +105,10 @@ The `browser_*` tools drive an isolated Chromium (Edge/Chrome) over the DevTools
 - The user's own browser profile is never used or attached; there is no option to attach to it in this version.
 - `WINMCP_BROWSER_PATH` points at a specific Chromium binary when auto-detection fails.
 
+## Bench matrix
+
+`python bench/run_matrix.py` runs the driver-conformance matrix: disposable WinForms + Tk fixtures log every observable effect to their own JSONL files and the runner asserts against those logs (external oracle), with a decoy fixture proving zero wrong-target leakage. Results land in `bench/results/`; the exit code is non-zero if any task fails. It is opt-in and not part of CI (CI runs the unit suite and the offline eval). See `bench/README.md`.
+
 ## When to use the vision fallback
 
 `screenshot` and `zoom` capture the selected display and save PNGs under the system temp directory. When the PNG fits the inline cap (4 MB), the same bytes are delivered as an MCP image content block; over the cap the result keeps the path only, with a reason. Each result reports the display origin and a short-lived frame id (`click`/`drag`/`scroll` accept `frame=...`); stale frames are refused with `FRAME_STALE` before any input. Their calls do not record a reason, and no cost or human-confirmation gate is enforced. They are excluded by the read-only allowlist above.

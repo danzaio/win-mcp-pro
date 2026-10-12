@@ -156,7 +156,7 @@ Install the development extra and run the unit and offline runner tests:
 .\.venv\Scripts\python.exe -m pytest tests eval/test_smoke.py -q
 ```
 
-The local validation on 12 October 2026 passed **460 tests**, with the opt-in live tests skipped in that run; all four live files were run separately and passed. A built wheel was also installed in a clean environment and checked through a real MCP stdio connection.
+The local validation on 12 October 2026 passed **468 tests**, with the opt-in live tests skipped in that run; all four live files were run separately and passed. A built wheel was also installed in a clean environment and checked through a real MCP stdio connection.
 
 The live test creates its own disposable WinForms window. It checks scoped snapshots, value writes and button invocation with fresh readback, then closes its own processes. It is not a claim that every Windows application has been tested.
 
@@ -214,6 +214,14 @@ The 12-task eval uses `FakeClient` fixtures. It checks the runner and its expect
 ```powershell
 .\.venv\Scripts\python.exe eval/run.py --min-success 0.8 --out "$env:TEMP\win-mcp-pro-eval.json"
 ```
+
+The bench matrix drives two WinForms fixtures and a Tk fixture (no UIA tree) with an external oracle: every effect is asserted from the fixtures' own JSONL logs, and a decoy fixture proves zero wrong-target leakage. It runs 11 driver-conformance tasks and writes `bench/results/`:
+
+```powershell
+.\.venv\Scripts\python.exe bench/run_matrix.py
+```
+
+See `bench/README.md` for scope, limits and what the first run caught (four real API mismatches, each now fixed with a regression test).
 
 The [CI workflow](.github/workflows/eval-gate.yml) runs the Windows unit suite and offline eval checks. It does not run the opt-in live UIA test. See [GitHub Actions](https://github.com/danzaio/win-mcp-pro/actions/workflows/eval-gate.yml) for recent runs.
 
