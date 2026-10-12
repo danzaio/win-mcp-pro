@@ -434,8 +434,12 @@ class _HealthyLeaf:
 
 @pytest.fixture
 def cleared_exclusions():
+    from tools import winproc
+
+    winproc.clear_exclusions()
     snap._EXCLUDED_PROCS.clear()
     yield
+    winproc.clear_exclusions()
     snap._EXCLUDED_PROCS.clear()
 
 
@@ -456,8 +460,18 @@ def test_slow_window_skipped_healthy_window_kept(monkeypatch, cleared_exclusions
 
 
 def test_excluded_window_is_never_walked(monkeypatch, cleared_exclusions):
+    from tools import winproc
+
     slow = _SlowProviderNode("slowui.exe", 4242, 0x900, sleep_s=5.0)
     monkeypatch.setattr(snap, "_list_windows", lambda: [slow, _HealthyWindow()])
+    monkeypatch.setattr(
+        winproc,
+        "_process_snapshot",
+        lambda: [
+            {"pid": 4242, "exe": "slowui.exe"},
+            {"pid": 5150, "exe": "notepad.exe"},
+        ],
+    )
     snap.exclude_proc("slowui.exe")
 
     started = time.monotonic()

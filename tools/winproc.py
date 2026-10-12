@@ -348,7 +348,7 @@ _EXCLUDE: set[str] = set()
 
 
 def exclude_proc(names: Any = None, mode: str = "add") -> set[str]:
-    """Maintain the traversal exclusion set (consulted by snapshot walks)."""
+    """Maintain the executable exclusion set used by full-mode snapshot walks."""
     global _EXCLUDE
     if mode == "clear":
         _EXCLUDE = set()

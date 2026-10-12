@@ -20,6 +20,7 @@ from typing import Any
 import mcp.types as types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
+from pydantic import BaseModel
 
 from . import registry
 from .audit import audit
@@ -31,30 +32,24 @@ def _call_handler(handler: Any, arguments: dict) -> Any:
     """Invoke a tool handler regardless of its calling convention.
 
     Canonical handlers take ``**arguments``. The winproc/vision/compat
-    slices take a single positional dict instead. kwargs-first preserves
-    the 31 working tools; the fallback fixes the other 22 without
-    touching them.
+    slices take a single positional dict instead. Bind the call before
+    invoking it so a TypeError raised inside a handler cannot cause a
+    second invocation of a side-effecting tool.
     """
     try:
+        signature = inspect.signature(handler)
+    except (ValueError, TypeError):
         return handler(**arguments)
-    except TypeError as first_exc:
+
+    try:
+        signature.bind(**arguments)
+    except TypeError as kwargs_error:
         try:
-            sig = inspect.signature(handler)
-        except (ValueError, TypeError):
-            raise first_exc
-        params = list(sig.parameters.values())
-        if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params):
-            raise first_exc
-        positional = [
-            p
-            for p in params
-            if p.kind
-            in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-        ]
-        required = [p for p in positional if p.default is inspect.Parameter.empty]
-        if len(params) == 1 or (len(required) == 1 and positional and params[0] is positional[0]):
-            return handler(arguments)
-        raise first_exc
+            signature.bind(arguments)
+        except TypeError:
+            raise kwargs_error
+        return handler(arguments)
+    return handler(**arguments)
 
 
 def _bridge_tools_to_registry() -> int:
@@ -132,21 +127,35 @@ def build_server(
                 result = await result
         except Exception as exc:
             # a blowing-up tool must not take the server down with it
+            to_dict = getattr(exc, "to_dict", None)
+            try:
+                error_result = to_dict() if callable(to_dict) else None
+            except Exception:
+                error_result = None
+            if not isinstance(error_result, dict):
+                error_result = {
+                    "error": type(exc).__name__,
+                    "message": str(exc),
+                }
             audit(
-                {"event": "tool_error", "tool": name, "error": type(exc).__name__}
+                {
+                    "event": "tool_error",
+                    "tool": name,
+                    "error": error_result.get("error", type(exc).__name__),
+                }
             )
             return types.CallToolResult(
                 content=[
                     types.TextContent(
                         type="text",
-                        text=json.dumps(
-                            {"error": type(exc).__name__, "message": str(exc)}
-                        ),
+                        text=json.dumps(error_result, default=str),
                     )
                 ],
                 is_error=True,
             )
         audit({"event": "tool_ok", "tool": name})
+        if isinstance(result, BaseModel):
+            result = result.model_dump(mode="json")
         text = result if isinstance(result, str) else json.dumps(result, default=str)
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=text)], is_error=False

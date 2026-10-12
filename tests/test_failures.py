@@ -373,6 +373,16 @@ def test_slow_provider_skipped_when_excluded(monkeypatch):
             "provider before any traversal — the contract assertions below are "
             "ready for the slice that lands it"
         )
+    winproc = _opt("tools.winproc")
+    if winproc is not None:
+        monkeypatch.setattr(
+            winproc,
+            "_process_snapshot",
+            lambda: [
+                {"pid": 4242, "exe": "slowui.exe"},
+                {"pid": 777, "exe": "notepad.exe"},
+            ],
+        )
 
     snap_fn = _resolve(snapshot, ["snapshot", "take_snapshot", "capture"])
     assert snap_fn is not None, "tools.snapshot exposes no snapshot()"

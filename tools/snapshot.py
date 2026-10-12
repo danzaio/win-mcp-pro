@@ -22,9 +22,10 @@ supports. The act layer resolves by pattern, never by coordinates.
 
 Rules honoured here: ``uiautomation`` is optional at *import* time (this module
 imports on a machine without it; calls then raise ``NotImplementedError``);
-per-call traversal budgets mean a slow provider skips nodes instead of hanging;
-logging is stderr-only via the logging module, and nothing is ever written to
-stdout, which the MCP stdio transport owns. No images are taken, ever.
+per-call traversal budgets are cooperative between UIA calls and cannot
+interrupt a synchronous COM call already in progress; logging is stderr-only
+via the logging module, and nothing is ever written to stdout, which the MCP
+stdio transport owns. No images are taken, ever.
 """
 
 from __future__ import annotations
@@ -183,11 +184,11 @@ class SnapshotElement(BaseModel):
 class Snapshot(BaseModel):
     """Result of one capture: the windows on screen and the captured elements.
 
-    In ``full`` mode every top-level window is walked under its own sub-budget,
-    so a slow or broken provider costs one window, never the call: the windows
-    that were captured are in ``windows``/``elements`` and the ones that were
-    dropped are in ``skipped`` (by pid or handle, never by name: a skipped
-    provider's name is deliberately kept out of the result).
+    In ``full`` mode every top-level window is walked under its own sub-budget.
+    A provider that raises or exhausts the cooperative budget is recorded in
+    ``skipped``; a synchronous COM call already in progress cannot be
+    interrupted. Excluded windows are skipped before traversal. Skips use pid
+    or handle, never the window name.
     """
 
     windows: list[SnapshotWindow] = Field(default_factory=list)
@@ -290,12 +291,12 @@ def _hwnd_of(control: Any) -> int:
 # exclusion (spec §5): a pathological provider is dropped before any traversal
 # ---------------------------------------------------------------------------
 
-#: Process names excluded from every snapshot walk. Lowercased on insert.
+#: Process names excluded from full-mode snapshot walks. Normalized on insert.
 _EXCLUDED_PROCS: set[str] = set()
 
 
 def exclude_proc(names: str | list[str] | tuple[str, ...] | set[str]) -> set[str]:
-    """Exclude processes by name from every subsequent snapshot traversal.
+    """Exclude processes by executable name from full-mode snapshot walks.
 
     Accepts one name or an iterable of them; matching is case-insensitive on
     the lowercased name. This is the seam the failure museum registers into
@@ -306,10 +307,18 @@ def exclude_proc(names: str | list[str] | tuple[str, ...] | set[str]) -> set[str
     if isinstance(names, str):
         names = [names]
     for name in names:
-        cleaned = _text(name).strip().lower()
+        cleaned = _normalize_exe(name)
         if cleaned:
             _EXCLUDED_PROCS.add(cleaned)
     return _excluded_names()
+
+
+def _normalize_exe(value: Any) -> str:
+    """Normalize a process image to the same basename used by winproc."""
+    name = _text(value).strip().replace("/", "\\").rsplit("\\", 1)[-1].lower()
+    if name.endswith(".exe"):
+        name = name[:-4]
+    return name
 
 
 def _excluded_names() -> set[str]:
@@ -317,25 +326,45 @@ def _excluded_names() -> set[str]:
     names = set(_EXCLUDED_PROCS)
     winproc = sys.modules.get("tools.winproc")
     if winproc is not None:
-        for attr in ("EXCLUDE_PROC", "EXCLUDED_PROCS", "EXCLUDE_PROCESSES", "EXCLUDE"):
-            extra = getattr(winproc, attr, None)
-            if isinstance(extra, (set, frozenset, list, tuple)):
-                names |= {_text(item).strip().lower() for item in extra if _text(item).strip()}
-    return names
+        get_names = getattr(winproc, "excluded_names", None)
+        extra = get_names() if callable(get_names) else getattr(winproc, "_EXCLUDE", ())
+        if isinstance(extra, (set, frozenset, list, tuple)):
+            names.update(extra)
+    return {normalized for item in names if (normalized := _normalize_exe(item))}
 
 
-def _is_excluded(control: Any) -> bool:
-    """True when this window's process is on the exclusion list.
+def _process_names_by_pid(excluded_names: set[str]) -> dict[int, str]:
+    """Resolve process IDs to executable basenames once per snapshot call."""
+    if not excluded_names:
+        return {}
+    winproc = sys.modules.get("tools.winproc")
+    enumerate_processes = getattr(winproc, "_process_snapshot", None)
+    if not callable(enumerate_processes):
+        return {}
+    try:
+        processes = enumerate_processes()
+    except Exception as exc:  # noqa: BLE001 - exclusions must not break snapshots
+        log.warning("process enumeration failed while applying exclusions: %s", exc)
+        return {}
+    return {
+        pid: exe
+        for process in processes
+        if isinstance(process, dict)
+        and (pid := _int(process.get("pid"))) > 0
+        and (exe := _normalize_exe(process.get("exe")))
+    }
 
-    A window's Name is its title in the general UIA world, so this is a
-    best-effort match without process enumeration; the winproc slice can map
-    pids to executables and shares its registry through :func:`_excluded_names`.
-    """
-    excluded = _excluded_names()
-    if not excluded:
+
+def _is_excluded(
+    control: Any,
+    excluded_names: set[str],
+    process_names_by_pid: dict[int, str],
+) -> bool:
+    """Match the UIA process ID to its executable, never its window title."""
+    if not excluded_names:
         return False
-    name = _text(_attr(control, "Name")).strip().lower()
-    return bool(name) and name in excluded
+    pid = _int(_attr(control, "ProcessId"))
+    return bool(pid) and process_names_by_pid.get(pid, "") in excluded_names
 
 
 def _skip_label(control: Any) -> str:
@@ -674,11 +703,15 @@ def snapshot(
     the kinds in ``type_filter`` when it is given.
 
     ``full`` isolates each window: its own sub-budget out of the call's total
-    ``timeout_ms``, and its own exception boundary. A window that overruns its
-    share or raises mid-walk is dropped and recorded in ``Snapshot.skipped`` by
-    pid, so one slow or broken provider can never null the whole snapshot or
-    hang the server. If the total budget is spent and nothing was captured, the
-    call raises :class:`SnapshotTimeout` instead of returning an empty tree.
+    ``timeout_ms``, and its own exception boundary. A window that raises or
+    exhausts its share between UIA calls is dropped and recorded in
+    ``Snapshot.skipped`` by pid. The budget cannot interrupt a synchronous UIA
+    or COM call that is already in progress. If the total budget is spent and
+    nothing was captured, the call raises :class:`SnapshotTimeout` instead of
+    returning an empty tree. An explicit ``root`` naming an excluded process
+    returns empty elements with skip metadata and is never traversed; when
+    every enumerated window is excluded, ``full`` returns empty instead of
+    falling back to the active window.
     """
     args = SnapshotArgs(
         mode=mode, root=root, depth=depth,
@@ -704,15 +737,38 @@ def snapshot(
             elements = _walk(window, _hwnd_of(window), kinds,
                              _Budget(args.timeout_ms, "fast"), depth=2)
     elif args.root:
-        # one scoped subtree: its own budget, its own failure boundary
+        # one scoped subtree: its own budget, its own failure boundary.
+        # Exclusions apply here too: an explicitly named excluded root is
+        # reported in skipped and never traversed (zero GetChildren).
         id_hwnd, runtime_id = _split_id(args.root)
         hwnd = _int(id_hwnd, 0)
+        excluded_names = _excluded_names()
+        process_names = _process_names_by_pid(excluded_names)
+        if excluded_names:
+            for window in _list_windows():
+                if _hwnd_of(window) != hwnd:
+                    continue
+                if _is_excluded(window, excluded_names, process_names):
+                    return Snapshot(
+                        windows=[],
+                        elements=[],
+                        elapsed_ms=(_perf_counter() - started) * 1000.0,
+                        skipped=[_skip_label(window)],
+                    )
+                break
         budget = _Budget(args.timeout_ms, "full")
         root_control = _find_by_runtime_id(hwnd, runtime_id, budget)
         if root_control is None:
             raise RootNotFound(
                 f"no live element with id {args.root!r}; "
                 "re-run snapshot to refresh ids"
+            )
+        if excluded_names and _is_excluded(root_control, excluded_names, process_names):
+            return Snapshot(
+                windows=[],
+                elements=[],
+                elapsed_ms=(_perf_counter() - started) * 1000.0,
+                skipped=[_skip_label(root_control)],
             )
         windows = _window_inventory()
         try:
@@ -725,13 +781,52 @@ def snapshot(
             skipped.append(f"root:{args.root}")
     else:
         # every enumerated window, each behind its own sub-budget
-        excluded = [c for c in _list_windows() if _is_excluded(c)]
-        pending = [c for c in _list_windows() if not _is_excluded(c)]
+        all_windows = _list_windows()
+        excluded_names = _excluded_names()
+        process_names = _process_names_by_pid(excluded_names)
+        excluded = [
+            control
+            for control in all_windows
+            if _is_excluded(control, excluded_names, process_names)
+        ]
+        pending = [
+            control
+            for control in all_windows
+            if not _is_excluded(control, excluded_names, process_names)
+        ]
         for control in excluded:
             skipped.append(_skip_label(control))  # never walked: exclusion first
         if not pending:
-            active = _active_window_control()
-            pending = [active] if active is not None else []
+            if not all_windows:
+                # No enumerated windows: try the foreground only when it is
+                # not itself excluded; otherwise report skips and walk nothing.
+                active = _active_window_control()
+                if active is None:
+                    return Snapshot(
+                        windows=[],
+                        elements=[],
+                        elapsed_ms=(_perf_counter() - started) * 1000.0,
+                        skipped=skipped,
+                    )
+                if _is_excluded(active, excluded_names, process_names):
+                    skipped.append(_skip_label(active))
+                    return Snapshot(
+                        windows=[],
+                        elements=[],
+                        elapsed_ms=(_perf_counter() - started) * 1000.0,
+                        skipped=skipped,
+                    )
+                pending = [active]
+            else:
+                # Every enumerated window was excluded: report the skips and
+                # return empty metadata instead of falling back to an excluded
+                # active window.
+                return Snapshot(
+                    windows=[],
+                    elements=[],
+                    elapsed_ms=(_perf_counter() - started) * 1000.0,
+                    skipped=skipped,
+                )
         left = max(1, len(pending))
         for index, control in enumerate(pending):
             hwnd = _hwnd_of(control)

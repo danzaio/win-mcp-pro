@@ -5,17 +5,16 @@ description = "Windows computer-use MCP server: UIA tree first, Control Patterns
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "mcp",
-    "pydantic>=2",
+    "mcp>=2.3,<3",
+    "pydantic>=2,<3",
     "uiautomation",
     "comtypes",
     "mss",
     "pillow",
-    "pytest",
 ]
 
 [project.optional-dependencies]
-dev = []
+dev = ["pytest>=8,<10"]
 
 [build-system]
 requires = ["setuptools>=68"]

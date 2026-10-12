@@ -11,6 +11,12 @@ on:
       - "tools/**"
       - "server/**"
       - "tests/**"
+      - "pyproject.toml"
+      - "README.md"
+      - "docs/**"
+      - "demo/**"
+      - "LICENSE"
+      - ".gitignore"
       - ".github/workflows/eval-gate.yml"
   schedule:
     - cron: "17 6 * * *"
@@ -21,6 +27,9 @@ on:
         required: false
         default: "0.8"
 
+permissions:
+  contents: read
+
 concurrency:
   group: eval-gate-${{ github.ref }}
   cancel-in-progress: true
@@ -30,10 +39,12 @@ env:
 
 jobs:
   eval-gate:
-    name: golden set (${{ env.SUCCESS_THRESHOLD }})
+    name: golden set
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
@@ -61,13 +72,13 @@ jobs:
           if-no-files-found: error
 
   unit-windows:
-    # The real suite needs Windows (uiautomation + comtypes). It is skipped
-    # until tests/ has files, so this workflow stays green on a fresh clone.
+    # The full suite needs Windows (uiautomation + comtypes).
     name: unit suite (windows)
     runs-on: windows-latest
-    if: ${{ hashFiles('tests/**/test_*.py') != '' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
@@ -76,8 +87,7 @@ jobs:
       - name: Install package + pytest
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .
-          python -m pip install pytest
+          python -m pip install -e ".[dev]"
 
       - name: pytest
         run: python -m pytest tests -q

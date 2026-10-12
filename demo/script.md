@@ -2,11 +2,11 @@
 
 No screenshots, no GUI recording, no mouse. Everything below runs in a terminal. Record with asciinema or a plain terminal capture.
 
-**Before recording:** run every command once for real and paste the actual output into the `<PLACEHOLDER>` slots. Never record a number you did not get from your own machine. Pytest counts, timings, and the eval table all have to come from a live run.
+**Before recording:** run every command once and paste the actual output into the `<PLACEHOLDER>` slots. Never record a pytest count you did not get from your own machine. Eval timings and rows come from the fake client; they are not desktop measurements.
 
 **Two gates before you record.** `python -m pytest tests -q` must be green, and `python -m pytest tests/test_failures.py -q` must be green. If either is red, the slice behind it is still landing. Say that out loud in the recording or fix it first. Do not edit output to look clean.
 
-Prereqs: venv built (`.venv\Scripts\python -m pip install -e .`), terminal already inside the repo.
+Prereqs: venv built (`.venv\Scripts\python -m pip install -e ".[dev]"`), terminal already inside the repo.
 
 ---
 
@@ -16,7 +16,7 @@ Prereqs: venv built (`.venv\Scripts\python -m pip install -e .`), terminal alrea
 > .venv\Scripts\python -c "import server"
 ```
 
-Expected: no output, exit 0. That silence is the point: `uiautomation` and `comtypes` both loaded and the package is intact.
+Expected: no output, exit 0. This checks the package import only; it does not prove UI Automation works against a live app.
 
 Say: "This is a Windows computer-use MCP server. It reads the UI as a tree, not as an image. Ninety seconds, all terminal."
 
@@ -33,11 +33,11 @@ Expected (fill from your run):
 <N> passed in <T>s
 ```
 
-`ERROR collecting tests/test_<group>.py` means that tool group has not landed yet. That is a real gap in the build, not a broken environment. Report it, do not route around it.
+Any collection error is a build blocker in this checkout. Do not skip the affected tool group.
 
 ## 0:20 — 0:36 · The failure museum
 
-This is the part that matters. These tests are the reasons the server skips instead of hanging, fires once instead of twice, and fails typed instead of dying quietly.
+This is the failure-museum suite. Its test doubles pin selected helper contracts; it does not prove live desktop behavior or human approval.
 
 ```
 > .venv\Scripts\python -m pytest tests/test_failures.py -q
@@ -47,15 +47,15 @@ Expected (fill from your run):
 
 ```
 ........  [100%]
-8 passed in <T>s
+<N> passed in <T>s
 ```
 
-Name the cases as they run: slow provider skipped when excluded and timed out per call, duplicate delivery producing a single effect, an elevated target returning a typed error, a double submit happening exactly once, and a missing element coming back as `NOT_FOUND` with a vision hint.
+Describe only the cases shown in the current output. The duplicate-delivery scenario exercises the transaction helper, not the direct MCP pattern/value actions.
 
 ## 0:36 — 0:56 · The golden set, and what the numbers are not
 
 ```
-> .venv\Scripts\python eval\run.py 2>eval-stderr.txt
+> .venv\Scripts\python eval\run.py --out "$env:TEMP\win-mcp-pro-eval-results.json" 2>$null
 ```
 
 Expected: 12 rows, one per task, with `ok`, `ms`, `tokens_est`, and a reason column. Every row passes with the fake client, by design, because the answers are canned. Fill every value from the run you just did.
@@ -69,25 +69,25 @@ Expected: 12 rows, one per task, with `ok`, `ms`, `tokens_est`, and a reason col
 | | **12/12** | | | | | rate 1.00 |
 ```
 
-**Say this out loud, it is the honest beat:** "That ran against a fake client. The runner, the checks, and the table are real, the answers are canned. It proves the plumbing. The numbers that count come from driving the live server against a real desktop, and that run has not happened yet."
+**Say this out loud, it is the honest beat:** "That ran against a fake client. The runner, the checks, and the table are real, the answers are canned. It proves eval plumbing. A separate smoke has exercised the live MCP server only against our disposable test form; the 12-task live evaluation has not run."
 
-Then the gate: `--min-success 0.8` is what CI runs, so a PR that drops the success rate below the floor fails the build.
+The CI threshold is applied to the same fake-client result. It does not gate a live desktop success rate.
 
-## 0:56 — 1:12 · Every call leaves a row
+## 0:56 — 1:12 · Stdio and call metadata
 
-Start the server in this pane. It sits in the foreground and speaks stdio, and the audit row appears on stderr the moment it starts.
+Start the server with the read-only tool allowlist. It sits in the foreground and speaks stdio; startup and call metadata go to stderr.
 
 ```
-> .venv\Scripts\python -m server.main --exclude-tools click,move,scroll,shortcut
+> .venv\Scripts\python -m server.main --tools list_windows,snapshot,find,dump_tree,get_prop,get_patterns
 ```
 
 Expected, on stderr, one JSON line:
 
 ```
-{"ts": "<timestamp>", "event": "server_start", "allowlist": null, "blocklist": ["click", "move", "scroll", "shortcut"]}
+{"ts": "<timestamp>", "event": "server_start", "allowlist": ["dump_tree", "find", "get_patterns", "get_prop", "list_windows", "snapshot"], "blocklist": null, "tools": 53}
 ```
 
-Point at two things: the row is on stderr, and it names the blocklist it was started with. Then say: "Every tool call adds a row the same way. stdout stays clean because stdout is the protocol channel. One stray print and the session dies."
+Point out the allowlist and that stdout remains reserved for JSON-RPC. The log contains tool and field names, not argument values or proof of effects.
 
 Ctrl-C to end the pane.
 
@@ -96,8 +96,8 @@ Ctrl-C to end the pane.
 No more commands. Leave the failure museum result and the eval table on screen and say three lines:
 
 - Tree-first, so no image tokens on the happy path.
-- Stable ids and Control Patterns, so no coordinate drift and a real audit trail.
-- The eval run is canned on purpose, and the CI gate fails a PR if the real numbers drop.
+- Stable ids and Control Patterns, with transient stderr call metadata rather than a durable audit trail.
+- The eval run and CI gate use canned responses; live desktop performance is unmeasured.
 
 Then stop the recording.
 
@@ -105,7 +105,7 @@ Then stop the recording.
 
 ## Cutting it down
 
-`python eval/run.py` prints all 12 tasks. If that overruns the budget, trim the recording and say the run was cut. Do not edit the table afterwards. The honest version is the one that gets the repo taken seriously.
+`python eval/run.py --out "$env:TEMP\win-mcp-pro-eval-results.json"` prints all 12 tasks. If that overruns the budget, trim the recording and say the run was cut. Do not edit the table afterwards.
 
 ## Recording notes
 
@@ -113,4 +113,4 @@ Then stop the recording.
 - Font one step larger than normal. It will be watched at small size.
 - Silence notifications before the eval beat; app launches are audible.
 - Keep the cursor still. A jumping cursor makes the recording look edited.
-- `2>eval-stderr.txt` keeps any stderr noise out of the table output. Remove the file before recording if you want a clean pane, or `type eval-stderr.txt` at the end to show the JSONL rows.
+- The eval command writes its output to the system temp directory so it does not overwrite a local `eval/results.json`.
