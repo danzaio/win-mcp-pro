@@ -1,32 +1,32 @@
 {
-  "stamp": "20261012-164216",
+  "stamp": "20261012-200422",
   "kind": "driver-conformance",
   "notes": "Effects asserted from the fixtures' own JSONL logs (external oracle); the decoy fixture proves zero wrong-target leakage. Not an LLM task benchmark and not a competitor comparison.",
   "summary": {
-    "tasks": 11,
-    "passed": 11,
+    "tasks": 13,
+    "passed": 13,
     "failed": 0,
     "skipped": 0,
-    "calls": 30,
-    "ms": 4703.0
+    "calls": 35,
+    "ms": 6422.0
   },
-  "elapsed_s": 6.4,
+  "elapsed_s": 8.1,
   "results": [
     {
       "id": "T01",
       "name": "find target window (identity)",
       "ok": true,
       "skipped": false,
-      "ms": 218.0,
-      "calls": 2,
-      "detail": "window=2951796:42,2951796"
+      "ms": 484.0,
+      "calls": 3,
+      "detail": "window=5376376:42,5376376"
     },
     {
       "id": "T02",
       "name": "set_value + oracle readback",
       "ok": true,
       "skipped": false,
-      "ms": 829.0,
+      "ms": 1031.0,
       "calls": 3,
       "detail": "set_value readback + fixture logged the change"
     },
@@ -35,7 +35,7 @@
       "name": "invoke + oracle event",
       "ok": true,
       "skipped": false,
-      "ms": 1000.0,
+      "ms": 1407.0,
       "calls": 4,
       "detail": "invoke + oracle button1 event + status renamed"
     },
@@ -44,7 +44,7 @@
       "name": "wait_text on the status",
       "ok": true,
       "skipped": false,
-      "ms": 31.0,
+      "ms": 15.0,
       "calls": 1,
       "detail": "wait_text saw the committed status"
     },
@@ -53,7 +53,7 @@
       "name": "wait_enabled on the button",
       "ok": true,
       "skipped": false,
-      "ms": 15.0,
+      "ms": 31.0,
       "calls": 1,
       "detail": "wait_enabled on the commit button"
     },
@@ -62,7 +62,7 @@
       "name": "frame-pinned click",
       "ok": true,
       "skipped": false,
-      "ms": 625.0,
+      "ms": 782.0,
       "calls": 5,
       "detail": "frame-pinned click reached button2"
     },
@@ -71,7 +71,7 @@
       "name": "unknown frame refused",
       "ok": true,
       "skipped": false,
-      "ms": 407.0,
+      "ms": 422.0,
       "calls": 1,
       "detail": "unknown frame refused with zero effect"
     },
@@ -80,8 +80,8 @@
       "name": "wrong target refused, no leakage",
       "ok": true,
       "skipped": false,
-      "ms": 1000.0,
-      "calls": 6,
+      "ms": 1281.0,
+      "calls": 7,
       "detail": "wrong-target refused, decoy log untouched"
     },
     {
@@ -89,7 +89,7 @@
       "name": "dump_tree children",
       "ok": true,
       "skipped": false,
-      "ms": 15.0,
+      "ms": 47.0,
       "calls": 1,
       "detail": "children=['Edit', 'Button', 'Button', 'Text', 'Titlebar']"
     },
@@ -98,7 +98,7 @@
       "name": "ocr_read window text",
       "ok": true,
       "skipped": false,
-      "ms": 297.0,
+      "ms": 468.0,
       "calls": 2,
       "detail": "ocr read the window text"
     },
@@ -107,9 +107,27 @@
       "name": "tk click via coordinates (no UIA tree)",
       "ok": true,
       "skipped": false,
-      "ms": 266.0,
-      "calls": 4,
+      "ms": 438.0,
+      "calls": 5,
       "detail": "coordinate click on a no-UIA toolkit"
+    },
+    {
+      "id": "T12",
+      "name": "replay with id binding",
+      "ok": true,
+      "skipped": false,
+      "ms": 0.0,
+      "calls": 1,
+      "detail": "replay: dump_tree -> get_prop by bound id"
+    },
+    {
+      "id": "T13",
+      "name": "doctor environment check",
+      "ok": true,
+      "skipped": false,
+      "ms": 16.0,
+      "calls": 1,
+      "detail": "10/10 checks ok"
     }
   ]
 }
