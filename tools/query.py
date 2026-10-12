@@ -200,9 +200,56 @@ def _remember(record: _Record) -> str:
     return record.id
 
 
-def _element_id(path: str, window: str) -> str:
-    digest = hashlib.sha1(f"{window}|{path}".encode("utf-8", "replace")).hexdigest()
+def _runtime_id_of(control: Any) -> list[int] | None:
+    """Runtime id as ints, or None when the control cannot provide one."""
+    getter = getattr(control, "GetRuntimeId", None)
+    if callable(getter):
+        try:
+            value = getter()
+        except Exception:  # noqa: BLE001 - dead element mid-walk
+            return None
+    else:
+        value = _attr(control, "RuntimeId")
+    if isinstance(value, (list, tuple)) and value:
+        try:
+            return [int(part) for part in value]
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _element_id(path: str, window: str, window_handle: Any = None,
+                runtime_id: list[int] | None = None, ordinal: int = 0) -> str:
+    """One id for one element.
+
+    Prefers the canonical ``"hwnd:runtimeid"`` form the snapshot layer mints
+    and every act/wait surface consumes. The digest fallback (a control that
+    cannot provide a runtime id) is built from the numeric window handle,
+    the path, the runtime id and the sibling ordinal -- never the window
+    title alone -- so same-name siblings and same-title windows no longer
+    collide.
+    """
+    hwnd = 0
+    try:
+        hwnd = int(window_handle or 0)
+    except (TypeError, ValueError):
+        hwnd = 0
+    if hwnd > 0 and runtime_id:
+        return "{}:{}".format(hwnd, ",".join(str(part) for part in runtime_id))
+    material = f"{hwnd or window}|{path}"
+    if runtime_id:
+        material += "|run:" + ",".join(str(part) for part in runtime_id)
+    if ordinal:
+        material += f"|ord:{ordinal}"
+    digest = hashlib.sha1(material.encode("utf-8", "replace")).hexdigest()
     return digest[:12]
+
+
+def _next_ordinal(counts: dict[str, int], segment: str) -> int:
+    """Per-parent occurrence of a sibling segment (0 for the first one)."""
+    ordinal = counts.get(segment, 0)
+    counts[segment] = ordinal + 1
+    return ordinal
 
 
 def _path_segment(control: Any) -> str:
@@ -219,10 +266,12 @@ def _path_segment(control: Any) -> str:
 
 
 def _register(control: Any, parent_path: str, window: str,
-              window_handle: Any = None) -> _Record:
+              window_handle: Any = None, ordinal: int = 0) -> _Record:
     path = f"{parent_path} > {_path_segment(control)}" if parent_path else _path_segment(control)
     record = _Record(
-        element_id=_element_id(path, window),
+        element_id=_element_id(path, window, window_handle,
+                               runtime_id=_runtime_id_of(control),
+                               ordinal=ordinal),
         path=path,
         parent_path=parent_path,
         name=_text(_attr(control, "Name")),
@@ -290,15 +339,16 @@ def _walk(predicate: Callable[[Any], bool], max_depth: int) -> _Record | None:
     ``searchDepth=1`` search has and a root-issued deep search does not.
     """
     budget = _MAX_NODES
-    frontier: list[tuple] = [
-        (control, "", _text(_attr(control, "Name")),
-         _attr(control, "NativeWindowHandle"), 0)
-        for control in _roots()
-    ]
+    seen_segments: dict[str, int] = {}
+    frontier: list[tuple] = []
+    for control in _roots():
+        ordinal = _next_ordinal(seen_segments, _path_segment(control))
+        frontier.append((control, "", _text(_attr(control, "Name")),
+                         _attr(control, "NativeWindowHandle"), 0, ordinal))
     visited: set[str] = set()
     while frontier and budget > 0:
         next_frontier: list[tuple] = []
-        for control, parent_path, window, window_handle, depth in frontier:
+        for control, parent_path, window, window_handle, depth, ordinal in frontier:
             key = _control_key(control)
             if key in visited:
                 continue
@@ -307,13 +357,16 @@ def _walk(predicate: Callable[[Any], bool], max_depth: int) -> _Record | None:
             if budget <= 0:
                 break
             if predicate(control):
-                return _register(control, parent_path, window, window_handle)
+                return _register(control, parent_path, window, window_handle, ordinal)
             if depth >= max_depth:
                 continue
             segment = _path_segment(control)
             child_path = f"{parent_path} > {segment}" if parent_path else segment
+            child_segments: dict[str, int] = {}
             for child in _children(control):
-                next_frontier.append((child, child_path, window, window_handle, depth + 1))
+                child_ordinal = _next_ordinal(child_segments, _path_segment(child))
+                next_frontier.append((child, child_path, window, window_handle,
+                                      depth + 1, child_ordinal))
                 budget -= 1
         frontier = next_frontier
     return None
@@ -556,17 +609,21 @@ def dump_tree(id: str, depth: int = 2) -> dict:  # noqa: A002 - spec-facing name
     state = {"nodes": 0, "truncated": False}
 
     def expand(control: Any, parent_path: str, window: str, window_handle: Any,
-               level: int) -> dict:
-        node = _register(control, parent_path, window, window_handle)
+               level: int, ordinal: int, reuse: "_Record | None" = None) -> dict:
+        node = reuse if reuse is not None else _register(
+            control, parent_path, window, window_handle, ordinal)
         children_out: list[dict] = []
         if level < params.depth:
+            child_segments: dict[str, int] = {}
             for child in _children(control):
                 state["nodes"] += 1
                 if state["nodes"] > _MAX_NODES:
                     state["truncated"] = True
                     break
+                child_ordinal = _next_ordinal(child_segments, _path_segment(child))
                 children_out.append(
-                    expand(child, node.path, window, window_handle, level + 1)
+                    expand(child, node.path, window, window_handle, level + 1,
+                           child_ordinal)
                 )
         return {
             "id": node.id,
@@ -577,7 +634,7 @@ def dump_tree(id: str, depth: int = 2) -> dict:  # noqa: A002 - spec-facing name
         }
 
     tree = expand(record.control, record.parent_path, record.window,
-                  record.window_handle, 0)
+                  record.window_handle, 0, 0, reuse=record)
     return {
         "ok": True,
         "element": record.element(),

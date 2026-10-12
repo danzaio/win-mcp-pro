@@ -8,7 +8,12 @@ Five tools, all polling INSIDE one call (no client-side loops):
 * ``wait_enabled(id, t)``    — until the element is enabled.
 * ``wait_gone(id, t)``       — until the element no longer exists.
 
-Element ids are ``"hwnd:runtimeid"`` strings (see tools.snapshot).
+Element ids resolve through the shared registries first (``find`` /
+``dump_tree`` publish there) and fall back to the canonical
+``"hwnd:runtimeid"`` walk through ``tools.patterns``. Every handler observes
+the element the id names -- never the window root -- and ``wait_focus``
+compares the focused control's RuntimeId with the target's, failing closed
+when either identity cannot be read.
 
 Every handler returns ``{"ok": bool, "elapsed_ms": int}``. A wait never
 raises because of a provider hiccup: the condition is retried until the
@@ -34,9 +39,10 @@ from pydantic import BaseModel, Field
 
 
 class WaitsProvider:
-    """Protocol waits.py talks to. The default impl is UIA-backed."""
+    """Protocol waits.py talks to. The default impl resolves real ids."""
 
-    def get_root(self, hwnd: str) -> Any:
+    def resolve_element(self, element_id: str) -> Any:
+        """The live control the id names, or None when nothing resolves."""
         raise NotImplementedError
 
     def get_focus(self) -> Any:
@@ -64,21 +70,24 @@ def _load_uia() -> Any:
 
 
 class UiaWaitsProvider(WaitsProvider):
-    """Real provider: resolves elements through the uiautomation package.
+    """Real provider: shared registries first, then the budgeted walk.
 
     ``uiautomation`` is imported on first use, never at module import, so
-    this module stays importable on machines without it.
+    this module stays importable on machines without it. Resolution goes
+    through ``tools.patterns.resolve_element``: the in-process registries
+    answer for ids that ``find``/``dump_tree`` published, and anything else
+    is resolved by a budgeted walk of the canonical ``"hwnd:runtimeid"``
+    form. A controlled not-found comes back as None; unexpected failures
+    bubble up to the poller, which treats them as "not yet" instead of
+    reporting success.
     """
 
-    def get_root(self, hwnd: str) -> Any:
-        uia = _load_uia()
+    def resolve_element(self, element_id: str) -> Any | None:
+        from tools import patterns
+
         try:
-            handle = int(hwnd, 0)
-        except ValueError:
-            return None
-        try:
-            return uia.ControlFromHandle(handle)
-        except Exception:
+            return patterns.resolve_element(element_id)
+        except patterns.PatternError:
             return None
 
     def get_focus(self) -> Any:
@@ -121,7 +130,11 @@ class ToolDef:
 # schemas (pydantic v2)
 # ---------------------------------------------------------------------------
 
-_ELEMENT_ID = r"(?:0x[0-9a-fA-F]+|\d+):.+"
+_ELEMENT_ID = r"(?:(?:0x[0-9a-fA-F]+|\d+):.+|[0-9a-f]{12})"
+_ID_DESCRIPTION = (
+    'Element id from find/snapshot: "hwnd:runtimeid" (e.g. "17524:42,8,2") '
+    "or a 12-hex registry id."
+)
 
 
 class WaitArgs(BaseModel):
@@ -130,12 +143,12 @@ class WaitArgs(BaseModel):
 
 class WaitTextArgs(BaseModel):
     s: str = Field(min_length=1, description="Substring to wait for in the element Name.")
-    id: str = Field(pattern=f"^{_ELEMENT_ID}$", description='Element id "hwnd:runtimeid".')
+    id: str = Field(pattern=f"^{_ELEMENT_ID}$", description=_ID_DESCRIPTION)
     timeout_ms: int = Field(default=5000, ge=0, description="Give up after this many ms.")
 
 
 class WaitIdArgs(BaseModel):
-    id: str = Field(pattern=f"^{_ELEMENT_ID}$", description='Element id "hwnd:runtimeid".')
+    id: str = Field(pattern=f"^{_ELEMENT_ID}$", description=_ID_DESCRIPTION)
     timeout_ms: int = Field(default=5000, ge=0, description="Give up after this many ms.")
 
 
@@ -148,15 +161,30 @@ WaitFocusArgs = WaitEnabledArgs = WaitGoneArgs = WaitIdArgs
 # ---------------------------------------------------------------------------
 
 
-def _split_id(element_id: str) -> tuple[str, str]:
-    hwnd, _, runtime_id = element_id.partition(":")
-    return hwnd, runtime_id
+def _resolve(element_id: str) -> Any | None:
+    """The element an id names, or None when nothing resolves under it."""
+    return _provider.resolve_element(element_id)
 
 
-def _resolve(element_id: str) -> Any:
-    """Resolve an "hwnd:runtimeid" id through the provider's window root."""
-    hwnd, _runtime_id = _split_id(element_id)
-    return _provider.get_root(hwnd)
+def _runtime_id_of(element: Any) -> tuple[int, ...] | None:
+    """Runtime id as an int tuple, or None when it cannot be read."""
+    getter = getattr(element, "GetRuntimeId", None)
+    if callable(getter):
+        try:
+            value = getter()
+        except Exception:  # noqa: BLE001 - dead element mid-poll
+            return None
+    else:
+        try:
+            value = getattr(element, "RuntimeId", None)
+        except Exception:  # noqa: BLE001
+            return None
+    if isinstance(value, (list, tuple)) and value:
+        try:
+            return tuple(int(part) for part in value)
+        except (TypeError, ValueError):
+            return None
+    return None
 
 
 def _elapsed_ms(start: float) -> int:
@@ -214,21 +242,19 @@ def handler_wait_text(s: str, id: str, timeout_ms: int = 5000) -> dict:
 
 def handler_wait_focus(id: str, timeout_ms: int = 5000) -> dict:
     def condition() -> bool:
+        target = _resolve(id)
+        if target is None:
+            return False
         focused = _provider.get_focus()
         if focused is None:
             return False
-        try:
-            # UIA control answers GetFocus(); ask it every poll so a focus
-            # gained between polls is seen.
-            return bool(focused.GetFocus())
-        except AttributeError:
-            # Fallback for controls without GetFocus: compare RuntimeId.
-            element = _resolve(id)
-            if element is None:
-                return False
-            return getattr(focused, "RuntimeId", None) == getattr(
-                element, "RuntimeId", None
-            )
+        target_runtime = _runtime_id_of(target)
+        focused_runtime = _runtime_id_of(focused)
+        if target_runtime is None or focused_runtime is None:
+            # Identity that cannot be proven must never report success:
+            # keep polling and let the deadline decide.
+            return False
+        return target_runtime == focused_runtime
 
     return _poll(condition, timeout_ms)
 
