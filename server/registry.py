@@ -107,8 +107,18 @@ def reset_registry() -> None:
 def run_server(
     allowlist: list[str] | None = None,
     blocklist: list[str] | None = None,
+    *,
+    uia_worker: bool = False,
+    worker_timeout_ms: int = 15_000,
+    worker_command: str | None = None,
 ) -> None:
     """Start the stdio MCP server over the registered tools."""
     from .main import run_stdio_server  # local import: main pulls in the mcp SDK
 
-    run_stdio_server(allowlist=allowlist, blocklist=blocklist)
+    run_stdio_server(
+        allowlist=allowlist,
+        blocklist=blocklist,
+        uia_worker=uia_worker,
+        worker_timeout_ms=worker_timeout_ms,
+        worker_command=worker_command,
+    )

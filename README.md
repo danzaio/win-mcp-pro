@@ -123,6 +123,10 @@ Input tools are bound to the element they intend by default. `click` with x/y re
 
 The server sets per-monitor DPI awareness at startup so UIA rectangles, captures and input share one physical-pixel space. Captures report a short-lived frame id and their display origin; absolute input spans the full virtual desktop, including monitors with negative coordinates.
 
+### Isolated tree walks (worker mode)
+
+`--uia-worker` runs `snapshot`, `find` and `dump_tree` in a supervised child process. A walk that does not answer within `--worker-timeout-ms` (default 15000 ms) gets the child killed and comes back as a typed `WORKER_TIMEOUT`; the session stays alive and the next call starts a fresh worker. Repeated failures hit a crash-loop guard (`WORKER_UNAVAILABLE`). Walks are read-only, so a timeout means "result unknown, zero side effects" and nothing is retried automatically; a worker that dies mid-call answers `WORKER_LOST`. Killed workers exit on stdin EOF, so none is orphaned. Element ids that carry native identity (`hwnd:runtimeid`) keep resolving after a kill; digest-only ids from a dead worker may not. Input and single-element resolution stay in the server process, so a killed worker can never abandon a half-sent gesture.
+
 The server writes JSONL invocation metadata to stderr: tool names, argument field names and success or error events. It does not keep a durable action history or verify UI effects on your behalf.
 
 ## Compatibility
@@ -146,7 +150,7 @@ Install the development extra and run the unit and offline runner tests:
 .\.venv\Scripts\python.exe -m pytest tests eval/test_smoke.py -q
 ```
 
-The local validation on 12 October 2026 passed **427 tests**, with the two opt-in live tests skipped in that run; both were run separately and passed. A built wheel was also installed in a clean environment and checked through a real MCP stdio connection.
+The local validation on 12 October 2026 passed **437 tests**, with the two opt-in live tests skipped in that run; both were run separately and passed. A built wheel was also installed in a clean environment and checked through a real MCP stdio connection.
 
 The live test creates its own disposable WinForms window. It checks scoped snapshots, value writes and button invocation with fresh readback, then closes its own processes. It is not a claim that every Windows application has been tested.
 

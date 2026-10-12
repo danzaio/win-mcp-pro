@@ -83,6 +83,18 @@ Coordinate input is bound by default (the *safe profile*):
 
 Frames expire after 30 seconds and only the last 16 are kept. The server runs with per-monitor DPI awareness so UIA rectangles, captures and input share one physical-pixel space; absolute input spans the full virtual desktop (negative monitor coordinates included).
 
+## Worker mode
+
+Opt-in via `--uia-worker`: the tree walks (`snapshot`, `find`, `dump_tree`) run in a supervised child process (`server.worker`) instead of the server process.
+
+- One walk at a time; the deadline is `--worker-timeout-ms` (default 15000).
+- On deadline the worker is killed and the call returns `WORKER_TIMEOUT` (read-only: result unknown, zero side effects, nothing retried); the next call spawns a fresh worker.
+- Crash loop: after repeated spawns inside a minute the supervisor refuses with `WORKER_UNAVAILABLE` until the window passes.
+- Worker died mid-call: `WORKER_LOST`; nothing is retried.
+- The worker exits on stdin EOF and the server kills it on shutdown - no orphans.
+- Ids minted before a kill keep resolving when they carry native identity (`hwnd:runtimeid`); digest-only ids may come back `NOT_FOUND`.
+- Input never runs in the worker; safe-profile verification stays in the server process, so a killed worker can never abandon a half-sent gesture.
+
 ## When to use the vision fallback
 
 `screenshot` and `zoom` capture the selected display and save PNGs under the system temp directory. When the PNG fits the inline cap (4 MB), the same bytes are delivered as an MCP image content block; over the cap the result keeps the path only, with a reason. Each result reports the display origin and a short-lived frame id (`click`/`drag`/`scroll` accept `frame=...`); stale frames are refused with `FRAME_STALE` before any input. Their calls do not record a reason, and no cost or human-confirmation gate is enforced. They are excluded by the read-only allowlist above.

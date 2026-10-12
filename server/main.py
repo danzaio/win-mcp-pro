@@ -16,6 +16,7 @@ import argparse
 import asyncio
 import inspect
 import json
+import sys
 from typing import Any
 
 import mcp.types as types
@@ -77,18 +78,24 @@ def _enable_dpi_awareness() -> None:
         pass
 
 
-def _bridge_tools_to_registry() -> int:
+def _bridge_tools_to_registry(worker=None) -> int:
     """Production wiring: discover tool modules and publish to the server registry.
 
     ``tools.load_all_modules()`` fills ``tools.TOOL_REGISTRY``; ``build_server``
     reads ``server.registry``. Without this bridge the server lists 0 tools.
     Idempotent: clears both sides first so a second boot does not clash.
+
+    ``worker`` (a supervisor) wraps the walk-tool handlers *before* they are
+    published, so the server registry holds the proxied handlers; wrapping
+    after publication would leave the original in-process handlers live.
     """
     import tools
 
     tools.clear()
     registry.reset_registry()
     tools.load_all_modules()
+    if worker is not None:
+        _enable_worker_proxy(worker)
     registry.register_module(tools.TOOL_REGISTRY)
     return len(registry.registered_tools())
 
@@ -170,7 +177,12 @@ def build_server(
                 is_error=True,
             )
         try:
-            result = _call_handler(tdef.handler, arguments)
+            if getattr(tdef.handler, "__worker_backed__", False):
+                # The handler blocks up to the worker deadline; a thread keeps
+                # the protocol loop free for concurrent requests meanwhile.
+                result = await asyncio.to_thread(_call_handler, tdef.handler, arguments)
+            else:
+                result = _call_handler(tdef.handler, arguments)
             if asyncio.iscoroutine(result):
                 result = await result
         except Exception as exc:
@@ -224,13 +236,47 @@ async def _serve(server: Server) -> None:
         )
 
 
+def _enable_worker_proxy(supervisor) -> None:
+    """Route the walk tools through the supervised worker process.
+
+    The wrapped handler carries ``__worker_backed__`` so ``on_call_tool``
+    runs it in a thread: the blocking worker wait never freezes the
+    protocol loop.
+    """
+    import tools as tools_pkg
+
+    from .supervisor import WORKER_TOOLS
+
+    def wrap(name: str):
+        def _call(args, _n=name, _s=supervisor):
+            return _s.call(_n, dict(args or {}))
+
+        _call.__worker_backed__ = True
+        _call.__doc__ = "Runs %s in the supervised UIA worker process." % name
+        return _call
+
+    for entry in tools_pkg.TOOL_REGISTRY:
+        if entry["name"] in WORKER_TOOLS:
+            entry["handler"] = wrap(entry["name"])
+
+
 def run_stdio_server(
     allowlist: list[str] | None = None,
     blocklist: list[str] | None = None,
+    *,
+    uia_worker: bool = False,
+    worker_timeout_ms: int = 15_000,
+    worker_command: str | None = None,
 ) -> None:
     """Serve MCP on stdio until the client closes the connection."""
     _enable_dpi_awareness()
-    count = _bridge_tools_to_registry()
+    worker = None
+    if uia_worker:
+        from .supervisor import UiaWorkerSupervisor
+
+        command = [sys.executable, worker_command] if worker_command else None
+        worker = UiaWorkerSupervisor(command=command, timeout_ms=worker_timeout_ms)
+    count = _bridge_tools_to_registry(worker)
     # build_server() alone stays lazy so in-memory test sessions control
     # exactly which tools exist; production always bridges first.
     server = build_server(allowlist, blocklist)
@@ -240,9 +286,15 @@ def run_stdio_server(
             "allowlist": allowlist,
             "blocklist": blocklist,
             "tools": count,
+            "uia_worker": uia_worker,
+            "worker_timeout_ms": worker_timeout_ms if uia_worker else None,
         }
     )
-    asyncio.run(_serve(server))
+    try:
+        asyncio.run(_serve(server))
+    finally:
+        if worker is not None:
+            worker.stop()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -261,6 +313,25 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="allow unbound global input (legacy profile); the default "
              "requires target=... (and frame=... for coordinate input)",
+    )
+    parser.add_argument(
+        "--uia-worker",
+        action="store_true",
+        help="run tree walks (snapshot/find/dump_tree) in a supervised child "
+             "process; a stuck walk is killed at the deadline and the session "
+             "survives",
+    )
+    parser.add_argument(
+        "--worker-timeout-ms",
+        type=int,
+        default=15_000,
+        help="deadline for one worker walk in ms (default 15000)",
+    )
+    parser.add_argument(
+        "--worker-command",
+        default=None,
+        help="advanced: python script run as the UIA worker instead of the "
+             "built-in server.worker module (tests use this)",
     )
     args = parser.parse_args(argv)
     from tools import compat
@@ -282,6 +353,9 @@ def main(argv: list[str] | None = None) -> int:
     registry.run_server(
         allowlist=sorted(allowlist) if allowlist is not None else None,
         blocklist=sorted(blocklist) if blocklist is not None else None,
+        uia_worker=args.uia_worker,
+        worker_timeout_ms=args.worker_timeout_ms,
+        worker_command=args.worker_command,
     )
     return 0
 
