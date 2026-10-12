@@ -73,7 +73,7 @@ UIA enumerates more when the process is elevated, and an **unelevated server can
 
 ## When to use the vision fallback
 
-`screenshot` and `zoom` capture the selected display and save PNGs under the system temp directory. Their calls do not record a reason, and no cost or human-confirmation gate is enforced. They are excluded by the read-only allowlist above.
+`screenshot` and `zoom` capture the selected display and save PNGs under the system temp directory. When the PNG fits the inline cap (4 MB), the same bytes are delivered as an MCP image content block; over the cap the result keeps the path only, with a reason. Each result reports the display origin so image pixels map back to desktop coordinates. Their calls do not record a reason, and no cost or human-confirmation gate is enforced. They are excluded by the read-only allowlist above.
 
 - Canvas, WebGL, or a custom-rendered surface with no UIA provider.
 - An icon or glyph with no accessible name at all.

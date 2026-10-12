@@ -7,12 +7,21 @@ may look instead of guessing. Microsoft's OmniParser is vision-ONLY, so it
 pays image tokens on every step; here the image is the exception, which is
 why this module is deliberately small.
 
-Images are files, not context: handlers return a PNG path under the temp
-dir plus dimensions, never base64 blobs. Import-safe: mss/PIL missing means
-a typed UNAVAILABLE error at call time, never at import.
+Delivery: the PNG is written to a file (the path stays in the text result,
+so clients that cannot render images still work) and, when it fits the
+inline cap, the same bytes ride back as an MCP image content block under
+the reserved ``_image_content`` key. The transport layer splits that key
+out of the text part; it never appears in the JSON the model reads.
+Over the cap the image is omitted with a reason and only the path remains.
+Every capture reports its display origin so pixel results map back to
+desktop coordinates.
+
+Import-safe: mss/PIL missing means a typed UNAVAILABLE error at call time,
+never at import.
 """
 from __future__ import annotations
 
+import base64
 import os
 import tempfile
 import time
@@ -22,6 +31,10 @@ from pydantic import BaseModel, Field
 
 _BACKEND_MISSING = "vision backend unavailable (mss/pillow not installed)"
 
+#: PNGs at or under this size also ride back as MCP image content. Bigger
+#: ones stay file-only so a 4K screenshot cannot flood the protocol stream.
+_IMAGE_INLINE_MAX_BYTES = 4 * 1024 * 1024
+
 
 def _shot_dir() -> str:
     path = os.path.join(tempfile.gettempdir(), "win-mcp-pro")
@@ -30,15 +43,21 @@ def _shot_dir() -> str:
 
 
 def _capture(monitor: int = 0):
-    """Grab raw pixels; swappable seam for tests. Returns (rgb_bytes, w, h)."""
+    """Grab raw pixels; swappable seam for tests.
+
+    Returns ``(rgb_bytes, width, height, origin)`` where ``origin`` is the
+    display's desktop offset (``{"left", "top"}``).
+    """
     import mss
 
     with mss.mss() as sct:
         monitors = sct.monitors
         if monitor < 0 or monitor >= len(monitors):
             raise ValueError(f"monitor {monitor} out of range (0..{len(monitors) - 1})")
-        shot = sct.grab(monitors[monitor] if monitor else sct.monitors[0])
-        return bytes(shot.rgb), int(shot.width), int(shot.height)
+        area = monitors[monitor] if monitor else sct.monitors[0]
+        shot = sct.grab(area)
+        origin = {"left": int(area.get("left", 0)), "top": int(area.get("top", 0))}
+        return bytes(shot.rgb), int(shot.width), int(shot.height), origin
 
 
 def _save_png(rgb: bytes, width: int, height: int, tag: str) -> dict:
@@ -47,8 +66,18 @@ def _save_png(rgb: bytes, width: int, height: int, tag: str) -> dict:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     path = os.path.join(_shot_dir(), f"{tag}-{stamp}.png")
     Image.frombytes("RGB", (width, height), rgb).save(path)
-    return {"path": path, "width": width, "height": height,
-            "bytes": os.path.getsize(path)}
+    size = os.path.getsize(path)
+    saved = {"path": path, "width": width, "height": height, "bytes": size}
+    if size <= _IMAGE_INLINE_MAX_BYTES:
+        with open(path, "rb") as fh:
+            payload = base64.b64encode(fh.read()).decode("ascii")
+        saved["_image_content"] = {"mime": "image/png", "data": payload}
+    else:
+        saved["image_omitted"] = (
+            f"PNG is {size} bytes, over the {_IMAGE_INLINE_MAX_BYTES}-byte inline cap; "
+            "read the file at path, or re-capture with a smaller scale"
+        )
+    return saved
 
 
 def _dry() -> bool:
@@ -82,7 +111,7 @@ def handler_screenshot(args: Any) -> dict:
     if _dry():
         return {"ok": True, "dry_run": True, "monitor": m.monitor, "scale": m.scale}
     try:
-        rgb, width, height = _capture(m.monitor)
+        rgb, width, height, origin = _capture(m.monitor)
     except ImportError:
         return {"ok": False, "error": "UNAVAILABLE", "reason": _BACKEND_MISSING}
     except Exception as exc:  # noqa: BLE001 - capture failure is data
@@ -95,7 +124,8 @@ def handler_screenshot(args: Any) -> dict:
         width, height = small.size
         rgb = small.tobytes()
     saved = _save_png(rgb, width, height, "shot")
-    return {"ok": True, "monitor": m.monitor, "scale": m.scale, **saved}
+    return {"ok": True, "monitor": m.monitor, "scale": m.scale,
+            "origin": origin, **saved}
 
 
 def handler_zoom(args: Any) -> dict:
@@ -104,7 +134,7 @@ def handler_zoom(args: Any) -> dict:
         return {"ok": True, "dry_run": True,
                 "region": [m.left, m.top, m.right, m.bottom]}
     try:
-        rgb, width, height = _capture(m.monitor)
+        rgb, width, height, origin = _capture(m.monitor)
     except ImportError:
         return {"ok": False, "error": "UNAVAILABLE", "reason": _BACKEND_MISSING}
     except Exception as exc:  # noqa: BLE001
@@ -118,7 +148,8 @@ def handler_zoom(args: Any) -> dict:
 
     crop = Image.frombytes("RGB", (width, height), rgb).crop((m.left, m.top, right, bottom))
     saved = _save_png(crop.tobytes(), *crop.size, "zoom")
-    return {"ok": True, "region": [m.left, m.top, right, bottom], **saved}
+    return {"ok": True, "region": [m.left, m.top, right, bottom],
+            "origin": origin, **saved}
 
 
 def _tool(name: str, description: str, schema, handler: Callable) -> dict:
@@ -127,9 +158,12 @@ def _tool(name: str, description: str, schema, handler: Callable) -> dict:
 
 TOOLS = [
     _tool("screenshot",
-          "Capture a display to a PNG file (vision fallback; tree-first stays default).",
+          "Capture a display to a PNG file (vision fallback; tree-first stays "
+          "default). The PNG also rides back as an MCP image content block when "
+          "it fits the inline cap; over the cap the result keeps the path only.",
           ScreenshotArgs, handler_screenshot),
     _tool("zoom",
-          "Crop a display region to a PNG file for reading small text.",
+          "Crop a display region to a PNG file for reading small text, with the "
+          "same inline image delivery as screenshot.",
           ZoomArgs, handler_zoom),
 ]

@@ -123,7 +123,7 @@ The server writes JSONL invocation metadata to stderr: tool names, argument fiel
 
 UI inspection depends on the application's UI Automation provider. Standard accessible controls are the intended target. Custom canvases, games and some Electron interfaces may expose little useful data.
 
-`screenshot` and `zoom` are separate calls that save PNG files and return their paths. The server doesn't automatically switch to screenshots when UIA cannot find a control.
+`screenshot` and `zoom` save PNG files and return their paths. When the PNG fits the inline cap (4 MB), the same bytes also ride back as an MCP image content block; over the cap the result keeps the path only, with a reason. Each capture reports its display origin so pixels map back to desktop coordinates. The server doesn't automatically switch to screenshots when UIA cannot find a control.
 
 Snapshot caching is used only when the installed UIA library and control support it. Otherwise the tree is read directly. Time budgets are checked between UIA calls; they cannot interrupt a blocked COM call. `find` and `dump_tree` have depth and node limits, not hard wall-clock deadlines.
 
@@ -140,7 +140,7 @@ Install the development extra and run the unit and offline runner tests:
 .\.venv\Scripts\python.exe -m pytest tests eval/test_smoke.py -q
 ```
 
-The local validation on 12 October 2026 passed **376 tests**, with the opt-in live test skipped in that run. That live test was run separately and passed. A built wheel was also installed in a clean environment and checked through a real MCP stdio connection.
+The local validation on 12 October 2026 passed **396 tests**, with the opt-in live test skipped in that run. That live test was run separately and passed. A built wheel was also installed in a clean environment and checked through a real MCP stdio connection.
 
 The live test creates its own disposable WinForms window. It checks scoped snapshots, value writes and button invocation with fresh readback, then closes its own processes. It is not a claim that every Windows application has been tested.
 

@@ -81,6 +81,29 @@ def _tool_schema(tdef: registry.ToolDef) -> dict:
     )
 
 
+def _split_inline_image(result: Any) -> tuple[Any, types.ImageContent | None]:
+    """Peel the reserved ``_image_content`` transport key off a handler result.
+
+    Handlers that produce an image (tools.vision, later the frame-pinned
+    capture) attach ``{"mime": ..., "data": <base64>}`` under that key. The
+    text part the model reads must never carry the blob, so the key is
+    popped here and converted into a real MCP image content block. Anything
+    malformed is dropped from the text without breaking the call.
+    """
+    if not isinstance(result, dict):
+        return result, None
+    payload = result.pop("_image_content", None)
+    if not isinstance(payload, dict):
+        return result, None
+    data = payload.get("data")
+    mime = payload.get("mime")
+    if not isinstance(data, str) or not data:
+        return result, None
+    if not isinstance(mime, str) or "/" not in mime:
+        mime = "image/png"
+    return result, types.ImageContent(type="image", data=data, mimeType=mime)
+
+
 def build_server(
     allowlist: list[str] | None = None,
     blocklist: list[str] | None = None,
@@ -156,10 +179,12 @@ def build_server(
         audit({"event": "tool_ok", "tool": name})
         if isinstance(result, BaseModel):
             result = result.model_dump(mode="json")
+        result, image = _split_inline_image(result)
         text = result if isinstance(result, str) else json.dumps(result, default=str)
-        return types.CallToolResult(
-            content=[types.TextContent(type="text", text=text)], is_error=False
-        )
+        content: list[Any] = [types.TextContent(type="text", text=text)]
+        if image is not None:
+            content.append(image)
+        return types.CallToolResult(content=content, is_error=False)
 
     return Server("win-mcp-pro", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
 
