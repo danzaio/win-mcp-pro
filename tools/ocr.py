@@ -86,27 +86,45 @@ def _engine(language: str | None):
     return engine
 
 
-def _recognize(png_bytes: bytes, language: str | None) -> list[dict]:
-    """Run Windows OCR over PNG bytes; swappable seam for tests."""
+def _run_coroutine(factory):
+    """Run an async factory even when called from inside a running loop.
+
+    The MCP server invokes handlers on its asyncio loop, where a plain
+    ``asyncio.run`` raises RuntimeError; WinRT is async, so in that case the
+    coroutine runs in a private thread with its own loop.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(factory())
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(lambda: asyncio.run(factory())).result()
+
+
+async def _winrt_ocr(png_bytes: bytes, language: str | None):
+    """Raw Windows OCR call; swappable seam for tests."""
     from winsdk.windows.graphics.imaging import BitmapDecoder
     from winsdk.windows.storage.streams import DataWriter, InMemoryRandomAccessStream
 
     engine = _engine(language)
+    stream = InMemoryRandomAccessStream()
+    writer = DataWriter(stream)
+    writer.write_bytes(png_bytes)
+    await writer.store_async()
+    await writer.flush_async()
+    writer.detach_stream()
+    stream.seek(0)
+    decoder = await BitmapDecoder.create_async(stream)
+    bitmap = await decoder.get_software_bitmap_async()
+    return await engine.recognize_async(bitmap)
 
-    async def run():
-        stream = InMemoryRandomAccessStream()
-        writer = DataWriter(stream)
-        writer.write_bytes(png_bytes)
-        await writer.store_async()
-        await writer.flush_async()
-        writer.detach_stream()
-        stream.seek(0)
-        decoder = await BitmapDecoder.create_async(stream)
-        bitmap = await decoder.get_software_bitmap_async()
-        return await engine.recognize_async(bitmap)
 
+def _recognize(png_bytes: bytes, language: str | None) -> list[dict]:
+    """Run Windows OCR over PNG bytes; swappable seam for tests."""
     try:
-        result = asyncio.run(run())
+        result = _run_coroutine(lambda: _winrt_ocr(png_bytes, language))
     except OcrError:
         raise
     except Exception as exc:  # noqa: BLE001 - OCR failure is data

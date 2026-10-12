@@ -226,13 +226,16 @@ class FakeNode:
 
 
 class FakeUia:
-    def __init__(self, tree=None):
+    def __init__(self, tree=None, handle=None):
         self.tree = tree
+        self.handle = handle
 
     def ControlFromHandle(self, handle):
-        if self.tree is not None and self.tree.rid and self.tree.rid[0] == int(handle):
-            return self.tree
-        return None
+        if self.tree is None:
+            return None
+        if self.handle is not None and int(handle) != int(self.handle):
+            return None
+        return self.tree
 
 
 class FakeCOMError(Exception):
@@ -478,32 +481,37 @@ def test_resolve_prefers_registry(monkeypatch):
     assert patterns.resolve_element("55:9") is el
 
 
-def test_resolve_walks_tree_for_runtime_id(monkeypatch):
-    leaf = FakeNode((100, 7, 321))
-    other = FakeNode((100, 7, 999))
-    root = FakeNode((100,), [FakeNode((100, 1), [other, leaf]), FakeNode((100, 2), [])])
+def test_resolve_walks_tree_for_real_runtime_ids(monkeypatch):
+    # Real UIA runtime ids look like [provider, control_hwnd] and do NOT
+    # repeat the window handle; the id's runtime part must match them
+    # verbatim under the window named by the id (the old fake used a
+    # synthetic [hwnd, path] shape that masked the mismatch).
+    leaf = FakeNode((42, 321))
+    other = FakeNode((42, 999))
+    root = FakeNode((42, 100), [FakeNode((42, 101), [other, leaf]),
+                                FakeNode((42, 102), [])])
     monkeypatch.setattr(patterns, "_ELEMENTS", {})
-    monkeypatch.setattr(patterns, "_uia", FakeUia(root))
-    assert patterns.resolve_element("100:7,321") is leaf
-    assert patterns.resolve_element("100:7.999") is other
+    monkeypatch.setattr(patterns, "_uia", FakeUia(root, handle=100))
+    assert patterns.resolve_element("100:42,321") is leaf
+    assert patterns.resolve_element("100:42.999") is other
 
 
 def test_resolve_walk_respects_node_budget(monkeypatch):
     """A pathological provider must not hang the call."""
 
     class Infinite:
-        rid = (1,)  # so ControlFromHandle hands it back as the window root
+        rid = (42, 1)
 
         def GetRuntimeId(self):
-            return [1, 1]
+            return [42, 1]
 
         def GetChildren(self):
             while True:  # unbounded tree
-                yield FakeNode((1, 1))
+                yield FakeNode((42, 1))
 
     monkeypatch.setattr(patterns, "_ELEMENTS", {})
-    monkeypatch.setattr(patterns, "_uia", FakeUia(Infinite()))
-    result = patterns.run_action("invoke", "1:1,1").model_dump()
+    monkeypatch.setattr(patterns, "_uia", FakeUia(Infinite(), handle=1))
+    result = patterns.run_action("invoke", "1:42,999").model_dump()
     assert result["ok"] is False
     assert result["error"]["code"] == "NOT_FOUND"
     assert "budget" in result["error"]["message"]

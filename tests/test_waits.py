@@ -18,11 +18,17 @@ from tools import waits
 
 
 class FakeElement:
-    """Duck-typed stand-in for a uiautomation control."""
+    """Duck-typed stand-in for a real uiautomation control.
+
+    Mirrors the real API shape: ``Name`` and ``IsEnabled`` are *properties*
+    (reading them is how the module observes state) and ``Exists`` is a
+    method; the real library has no ``GetName``/``GetEnabled``. The optional
+    hooks simulate a value that changes between polls.
+    """
 
     def __init__(self, name="", enabled=True, exists=True, runtime_id=None):
-        self.Name = name
-        self.IsEnabled = enabled
+        self._name = name
+        self._enabled = enabled
         self._exists = exists
         self.RuntimeId = list(runtime_id) if runtime_id else None
         # functions tests can flip to change behaviour over time
@@ -30,15 +36,17 @@ class FakeElement:
         self.on_get_name = None
         self.on_exists = None
 
-    def GetName(self):
+    @property
+    def Name(self):
         if self.on_get_name:
             return self.on_get_name()
-        return self.Name
+        return self._name
 
-    def GetEnabled(self):
+    @property
+    def IsEnabled(self):
         if self.on_get_enabled:
             return self.on_get_enabled()
-        return self.IsEnabled
+        return self._enabled
 
     def Exists(self, timeout=0):
         if self.on_exists:
@@ -47,7 +55,15 @@ class FakeElement:
 
 
 class FakeProvider:
-    """Minimal provider protocol used by waits."""
+    """Minimal provider protocol used by waits.
+
+    Resolution and focus are scripted; the element-state reads delegate to
+    the real provider so this fake can never drift from the real uiautomation
+    API shape again (the live bench caught a method-only read that the old
+    fake masked).
+    """
+
+    _real = waits.UiaWaitsProvider()
 
     def __init__(self, elements=None, focus=None):
         self.elements = dict(elements or {})
@@ -68,11 +84,11 @@ class FakeProvider:
 
     def element_text(self, element):
         self.text_calls += 1
-        return element.GetName()
+        return self._real.element_text(element)
 
     def element_enabled(self, element):
         self.enabled_calls += 1
-        return element.GetEnabled()
+        return self._real.element_enabled(element)
 
     def element_exists(self, element):
         self.gone_calls += 1
@@ -301,6 +317,26 @@ def test_provider_errors_do_not_raise_out_of_handler(no_sleep, provider):
 
     result = waits.handler_wait_gone(id=ADDR, timeout_ms=0)
     assert result["ok"] is False
+
+
+def test_element_reads_use_the_real_uia_property_shape(no_sleep, provider):
+    """Real uiautomation controls expose Name/IsEnabled as properties and
+    have no GetName/GetEnabled methods. A control with only that shape must
+    still satisfy the waits - the live bench caught the method-only read
+    (AttributeError was swallowed into an endless timeout)."""
+
+    class RealShape:
+        Name = "Save completed"
+        IsEnabled = True
+        RuntimeId = [5678]
+
+        def Exists(self, timeout=0):
+            return True
+
+    provider.elements[ADDR] = RealShape()
+    assert waits.handler_wait_enabled(id=ADDR, timeout_ms=200)["ok"] is True
+    assert waits.handler_wait_text(s="save", id=ADDR, timeout_ms=200)["ok"] is True
+    assert waits.handler_wait_gone(id=ADDR, timeout_ms=0)["ok"] is False
 
 
 def test_timeout_bound(no_sleep, provider):

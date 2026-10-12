@@ -215,12 +215,12 @@ def _find_by_runtime_id(element_id: str, hwnd: int, runtime: tuple[int, ...]) ->
     if root is None:
         raise PatternError(ERR_NOT_FOUND, f"window handle {hwnd} has no UIA element")
 
-    # The id carries the window handle plus the element path ("hwnd:7,321"),
-    # so the match key is the full tuple (hwnd, *runtime). Bare-path
-    # matching is deliberately NOT attempted: it would match ancestors
-    # and siblings spuriously (and would defeat the node budget on
-    # self-similar trees).
-    found = _walk_for(root, (hwnd, *runtime), element_id)
+    # The id's runtime part is the element's own RuntimeId, verbatim: it is
+    # unique across the desktop (e.g. the Win32 provider hands out
+    # [42, control_hwnd]), so the walk matches it exactly under the window
+    # named by the id's hwnd. Prefixing the window handle here was the bug
+    # that made every snapshot-derived id unresolvable by the walk.
+    found = _walk_for(root, tuple(runtime), element_id)
     if found is not None:
         return found
 

@@ -96,12 +96,29 @@ class UiaWaitsProvider(WaitsProvider):
 
     def element_text(self, element: Any) -> str:
         try:
-            return element.GetName() or ""
+            return str(element.Name or "")
         except Exception:
-            return ""
+            pass
+        getter = getattr(element, "GetName", None)
+        if callable(getter):
+            try:
+                return getter() or ""
+            except Exception:
+                return ""
+        return ""
 
     def element_enabled(self, element: Any) -> bool:
-        return bool(element.GetEnabled())
+        try:
+            return bool(element.IsEnabled)
+        except Exception:
+            pass
+        getter = getattr(element, "GetEnabled", None)
+        if callable(getter):
+            try:
+                return bool(getter())
+            except Exception:
+                return False
+        return False
 
     def element_exists(self, element: Any) -> bool:
         return bool(element.Exists())

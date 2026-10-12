@@ -160,7 +160,21 @@ def _parse_hwnd_runtime(raw: str) -> tuple[int, tuple[int, ...]] | None:
 
 
 def _runtime_tuple(control: Any) -> tuple[int, ...]:
-    raw = query._attr(control, "RuntimeId")
+    """The control's runtime id as ints.
+
+    Real uiautomation controls expose ``GetRuntimeId()`` and no plain
+    ``RuntimeId`` attribute; the attribute is kept as a fallback for older
+    wrappers. Reading only the attribute made every snapshot-derived id
+    unresolvable through this walk.
+    """
+    getter = getattr(control, "GetRuntimeId", None)
+    if callable(getter):
+        try:
+            raw = getter()
+        except Exception:  # noqa: BLE001 - dead element mid-walk
+            return ()
+    else:
+        raw = query._attr(control, "RuntimeId")
     if raw is None:
         return ()
     if isinstance(raw, (list, tuple)):

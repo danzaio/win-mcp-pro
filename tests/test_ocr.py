@@ -122,6 +122,52 @@ def test_ocr_dry_run_never_touches_the_screen(monkeypatch):
     assert called == []
 
 
+def test_run_coroutine_works_inside_a_running_loop():
+    """The MCP server calls handlers on its asyncio loop; the OCR path must
+    not raise 'asyncio.run() cannot be called from a running event loop'."""
+    import asyncio as asyncio_module
+
+    async def scenario():
+        async def make():
+            return "value"
+
+        return ocr._run_coroutine(make)
+
+    assert asyncio_module.run(scenario()) == "value"
+
+
+def test_recognize_call_site_is_loop_safe(monkeypatch):
+    """Pins the call site (not just the helper): _recognize must go through
+    the loop-safe runner even when invoked from inside the server loop."""
+    import asyncio as asyncio_module
+
+    class Rect:
+        x, y, width, height = 1, 2, 3, 4
+
+    class Word:
+        text = "HELLO"
+        bounding_rect = Rect()
+
+    class Line:
+        text = "HELLO"
+        words = [Word()]
+
+    class Result:
+        lines = [Line()]
+
+    async def fake_winrt(png_bytes, language):
+        return Result()
+
+    monkeypatch.setattr(ocr, "_winrt_ocr", fake_winrt)
+
+    async def scenario():
+        return ocr._recognize(b"png", None)
+
+    lines = asyncio_module.run(scenario())
+    assert lines == [{"text": "HELLO", "bbox": [1, 2, 4, 6],
+                      "words": [{"text": "HELLO", "bbox": [1, 2, 4, 6]}]}]
+
+
 def test_tool_surface():
     names = {t["name"] for t in ocr.TOOLS}
     assert names == {"ocr_read"}

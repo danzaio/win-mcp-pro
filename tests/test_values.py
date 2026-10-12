@@ -273,6 +273,25 @@ def test_runtime_lookup_stops_on_cyclic_tree(monkeypatch):
         parts.window._children = original_children
 
 
+def test_runtime_tuple_uses_get_runtime_id():
+    """Real uiautomation controls expose GetRuntimeId() and no RuntimeId
+    attribute; the walk must read the method (the live bench caught the
+    attribute-only read, which made snapshot-derived ids unresolvable)."""
+
+    class RealShape:
+        def GetRuntimeId(self):
+            return [42, 123]
+
+    assert values._runtime_tuple(RealShape()) == (42, 123)
+
+
+def test_runtime_tuple_falls_back_to_the_attribute():
+    class Legacy:
+        RuntimeId = [7, 8]
+
+    assert values._runtime_tuple(Legacy()) == (7, 8)
+
+
 def test_handlers_return_unavailable_without_library(monkeypatch):
     monkeypatch.setattr(query, "_uia", None)
     monkeypatch.setattr(values, "_uia", None)
