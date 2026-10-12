@@ -117,7 +117,8 @@ def no_sleep(monkeypatch):
 
 def test_tools_expose_five_wait_tools():
     names = {t.name for t in waits.TOOLS}
-    assert names == {"wait", "wait_text", "wait_focus", "wait_enabled", "wait_gone"}
+    assert names == {"wait", "wait_text", "wait_focus", "wait_enabled", "wait_gone",
+                      "wait_change"}
     for t in waits.TOOLS:
         assert t.description
         assert issubclass(t.schema, BaseModel)

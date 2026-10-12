@@ -6,7 +6,7 @@ Run::
 
 Spawns two disposable WinForms fixtures (a target and a decoy; each logs
 every observable effect to its own JSONL file), starts the MCP server over
-stdio, and runs 10 deterministic driver-conformance tasks. Effects are
+stdio, and runs 17 deterministic driver-conformance tasks. Effects are
 asserted from the fixtures' own logs - the external oracle - never from the
 server's reply, and the decoy's log proves zero wrong-target leakage. Writes
 JSON + a markdown summary and exits non-zero if any task fails.
@@ -27,6 +27,7 @@ import sys
 import tempfile
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from mcp import ClientSession
@@ -35,7 +36,8 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "bench" / "fixtures" / "winforms_probe.ps1"
 ALLOWED = ("list_windows,snapshot,find,get_prop,set_value,invoke,zoom,click,"
-           "wait_text,wait_enabled,dump_tree,ocr_read,replay,doctor")
+           "wait_text,wait_enabled,dump_tree,ocr_read,replay,doctor,"
+           "cursor_position,double_click,ocr_click,wait_change")
 
 
 class SkipTask(Exception):
@@ -469,6 +471,101 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         assert result["ok"] is True, result
                         return result["summary"]
 
+                    async def t14():
+                        pos = await call("cursor_position", {})
+                        assert pos["ok"], pos
+                        assert isinstance(pos["x"], int) and isinstance(pos["y"], int), pos
+                        return f"cursor at ({pos['x']}, {pos['y']})"
+
+                    async def t15():
+                        # double_click on the Commit button: the oracle logs
+                        # MouseDown/Up per press, so a real double-click is
+                        # exactly +2 downs and +2 ups, milliseconds apart
+                        # (one SendInput batch, not two separate clicks).
+                        window = await target_window()
+                        commit = await find_in_window(window, target_names["commit"], "Button")
+                        wrect = (await call("get_prop", {"id": window, "prop": "rect"}))["value"]
+                        brect = (await call("get_prop", {"id": commit, "prop": "rect"}))["value"]
+                        vx, vy = _monitor_origin()
+                        zoom = await call("zoom", {
+                            "left": wrect["left"] - vx, "top": wrect["top"] - vy,
+                            "right": wrect["right"] - vx, "bottom": wrect["bottom"] - vy})
+                        assert zoom["ok"], zoom
+                        frame = zoom["frame"]
+                        imgx = (brect["left"] + brect["right"]) / 2 - frame["left"]
+                        imgy = (brect["top"] + brect["bottom"]) / 2 - frame["top"]
+                        downs_before = _count(_read_events(target_log), "b1_down")
+                        ups_before = _count(_read_events(target_log), "b1_up")
+                        hit = await call("double_click", {"x": imgx, "y": imgy,
+                                                          "frame": frame["id"],
+                                                          "target": commit})
+                        assert hit["ok"] and hit.get("clicks") == 2, hit
+                        assert _wait_for_count(target_log, "b1_down",
+                                               downs_before + 2, timeout=3.0) == downs_before + 2
+                        assert _wait_for_count(target_log, "b1_up",
+                                               ups_before + 2, timeout=3.0) == ups_before + 2
+                        downs = [e for e in _read_events(target_log)
+                                 if e.get("event") == "b1_down"][-2:]
+                        stamps = [datetime.fromisoformat(e["t"]) for e in downs]
+                        gap_ms = (stamps[1] - stamps[0]).total_seconds() * 1000
+                        assert gap_ms < 1000, gap_ms
+                        return f"double-click: 2 press pairs {gap_ms:.0f}ms apart"
+
+                    async def t16():
+                        # ocr_click on the Alt button by its visible text; the
+                        # oracle (not the server reply) proves the hit, and
+                        # the decoy log proves nothing leaked across.
+                        window = await target_window()
+                        rect = (await call("get_prop", {"id": window, "prop": "rect"}))["value"]
+                        vx, vy = _monitor_origin()
+                        decoy_before = _count(_read_events(decoy_log), "button2")
+                        target_before = _count(_read_events(target_log), "button2")
+                        hit = await call("ocr_click", {
+                            "text": "Alt", "target": window,
+                            "left": rect["left"] - vx, "top": rect["top"] - vy,
+                            "right": rect["right"] - vx, "bottom": rect["bottom"] - vy})
+                        if not hit.get("ok") and hit.get("error") == "NO_OCR_LANGUAGE":
+                            raise SkipTask("no OCR language pack on this machine")
+                        assert hit["ok"], hit
+                        assert hit["text"].casefold() == "alt", hit
+                        assert _wait_for_count(target_log, "button2",
+                                               target_before + 1,
+                                               timeout=5.0) == target_before + 1
+                        assert _count(_read_events(decoy_log), "button2") == decoy_before
+                        return "ocr_click hit the Alt button by its text"
+
+                    async def t17():
+                        # wait_change, both directions: a static decoy region
+                        # times out, and fresh text in the input box fires.
+                        inventory = await call("list_windows", {})
+                        decoy = next(w for w in inventory["windows"]
+                                     if w["title"] == decoy_title
+                                     and w["pid"] == app_decoy.pid)
+                        decoy_window = await window_id_for(decoy["hwnd"])
+                        drect = (await call("get_prop", {"id": decoy_window,
+                                                         "prop": "rect"}))["value"]
+                        vx, vy = _monitor_origin()
+                        quiet = await call("wait_change", {
+                            "left": drect["left"] - vx, "top": drect["top"] - vy,
+                            "right": drect["right"] - vx, "bottom": drect["bottom"] - vy,
+                            "timeout_ms": 700, "threshold": 0.02})
+                        assert quiet["ok"] is False, quiet
+                        window = await target_window()
+                        field = await find_in_window(window, target_names["input"], "Edit")
+                        irect = (await call("get_prop", {"id": field, "prop": "rect"}))["value"]
+                        waiter = asyncio.create_task(call("wait_change", {
+                            "left": irect["left"] - vx, "top": irect["top"] - vy,
+                            "right": irect["right"] - vx, "bottom": irect["bottom"] - vy,
+                            "timeout_ms": 8000, "threshold": 0.02}))
+                        await asyncio.sleep(0.4)  # let the baseline settle first
+                        await call("set_value", {"id": field,
+                                                 "text": f"wait-change {suffix}"})
+                        fired = await waiter
+                        assert fired["ok"] is True, fired
+                        assert fired["changed"] > 0.02, fired
+                        return (f"quiet region timed out, fresh text fired "
+                                f"in {fired['elapsed_ms']}ms")
+
                     all_tasks = [
                         ("T01", "find target window (identity)", t01),
                         ("T02", "set_value + oracle readback", t02),
@@ -483,6 +580,10 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         ("T11", "tk click via coordinates (no UIA tree)", t11),
                         ("T12", "replay with id binding", t12),
                         ("T13", "doctor environment check", t13),
+                        ("T14", "cursor_position read", t14),
+                        ("T15", "double_click two press pairs", t15),
+                        ("T16", "ocr_click by visible text", t16),
+                        ("T17", "wait_change timeout + fire", t17),
                     ]
                     for tid, desc, fn in all_tasks:
                         if only and tid not in only:

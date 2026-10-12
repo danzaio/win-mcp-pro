@@ -7,6 +7,10 @@ Five tools, all polling INSIDE one call (no client-side loops):
 * ``wait_focus(id, t)``      — until the element has keyboard focus.
 * ``wait_enabled(id, t)``    — until the element is enabled.
 * ``wait_gone(id, t)``       — until the element no longer exists.
+* ``wait_change``            — until a screen region's pixels change.
+
+``wait_change`` watches pixels (loading spinners, progress bars, canvas
+updates the tree cannot describe); the rest watch the accessibility tree.
 
 Element ids resolve through the shared registries first (``find`` /
 ``dump_tree`` publish there) and fall back to the canonical
@@ -31,7 +35,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # ---------------------------------------------------------------------------
 # provider layer (swappable for tests)
@@ -173,6 +177,27 @@ class WaitIdArgs(BaseModel):
 WaitFocusArgs = WaitEnabledArgs = WaitGoneArgs = WaitIdArgs
 
 
+class WaitChangeArgs(BaseModel):
+    monitor: int = Field(default=0, ge=0, description="Zero-based display index.")
+    left: int | None = Field(default=None, ge=0, description="Region start (all four or none).")
+    top: int | None = Field(default=None, ge=0)
+    right: int | None = Field(default=None, gt=0)
+    bottom: int | None = Field(default=None, gt=0)
+    threshold: float = Field(
+        default=0.02, ge=0.0, le=1.0,
+        description="Fraction of (downscaled) pixels that must differ from "
+                    "the baseline before the wait fires.",
+    )
+    timeout_ms: int = Field(default=5000, ge=0, description="Give up after this many ms.")
+
+    @model_validator(mode="after")
+    def _complete_region(self) -> "WaitChangeArgs":
+        given = [value is not None for value in (self.left, self.top, self.right, self.bottom)]
+        if any(given) and not all(given):
+            raise ValueError("give left/top/right/bottom together, or none for the full monitor")
+        return self
+
+
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
@@ -296,6 +321,100 @@ def handler_wait_gone(id: str, timeout_ms: int = 5000) -> dict:
     return _poll(condition, timeout_ms)
 
 
+#: Downscale cap for pixel diffs: a full 4K frame is ~25M pixels, but a
+#: spinner or a relabeled button flips whole blocks, so 160px across keeps
+#: the per-poll diff at a few thousand pixels and still sees real change.
+_DIFF_MAX_WIDTH = 160
+#: Per-pixel luminance distance that counts as "different" (of 255).
+_DIFF_TOLERANCE = 12
+
+
+def _gray_small(rgb: bytes, width: int, height: int,
+               region: tuple[int, int, int, int] | None) -> bytes:
+    """Downscaled grayscale bytes of the (optionally cropped) capture."""
+    from PIL import Image
+
+    image = Image.frombytes("RGB", (width, height), rgb)
+    if region is not None:
+        image = image.crop(region)
+    gray = image.convert("L")
+    width, height = gray.size
+    scale = min(1.0, _DIFF_MAX_WIDTH / max(width, 1))
+    if scale < 1.0:
+        gray = gray.resize((max(1, int(width * scale)), max(1, int(height * scale))))
+    return gray.tobytes()
+
+
+def _fraction_changed(baseline: bytes, current: bytes) -> float:
+    different = sum(1 for old, new in zip(baseline, current)
+                    if abs(old - new) > _DIFF_TOLERANCE)
+    return different / max(1, len(baseline))
+
+
+def handler_wait_change(args: Any) -> dict:
+    """Wait (inside this call) until a screen region's pixels change.
+
+    Captures the baseline on entry, then polls downscaled grayscale frames
+    until the fraction of changed pixels exceeds ``threshold``. Returns
+    ``{"ok", "elapsed_ms", "changed"}``; a capture failure mid-wait is
+    "not yet" (same philosophy as the tree waits), never success.
+    """
+    from tools import vision
+
+    m = WaitChangeArgs(**dict(args or {}))
+    try:
+        rgb, width, height, _origin = vision._capture(m.monitor)
+    except ImportError:
+        return {"ok": False, "error": "UNAVAILABLE",
+                "reason": "vision backend unavailable (mss/pillow not installed)",
+                "elapsed_ms": 0, "changed": 0.0}
+    except ValueError as exc:
+        return {"ok": False, "error": "BAD_MONITOR", "reason": str(exc)[:200],
+                "elapsed_ms": 0, "changed": 0.0}
+    except Exception as exc:  # noqa: BLE001 - capture failure is data
+        return {"ok": False, "error": "CAPTURE_FAILED", "reason": str(exc)[:200],
+                "elapsed_ms": 0, "changed": 0.0}
+    if m.left is None:
+        region = None
+    else:
+        try:
+            vision._validate_region(m.left, m.top, m.right, m.bottom, width, height)
+        except ValueError as exc:
+            return {"ok": False, "error": "BAD_REGION", "reason": str(exc)[:200],
+                    "elapsed_ms": 0, "changed": 0.0}
+        region = (m.left, m.top, min(m.right, width), min(m.bottom, height))
+    try:
+        baseline = _gray_small(rgb, width, height, region)
+    except ImportError:
+        return {"ok": False, "error": "UNAVAILABLE",
+                "reason": "vision backend unavailable (mss/pillow not installed)",
+                "elapsed_ms": 0, "changed": 0.0}
+    timeout_ms = min(max(0, m.timeout_ms), _MAX_TIMEOUT_MS)
+    start = time.monotonic()
+    deadline = start + timeout_ms / 1000.0
+    polls = 0
+    changed = 0.0
+    while True:
+        try:
+            rgb, width, height, _origin = vision._capture(m.monitor)
+            changed = _fraction_changed(baseline, _gray_small(rgb, width, height, region))
+            if changed > m.threshold:
+                return {"ok": True, "elapsed_ms": _elapsed_ms(start),
+                        "changed": round(changed, 4)}
+        except Exception:
+            # torn-down display, racing resolution change...: not yet.
+            pass
+        polls += 1
+        if polls >= _MAX_POLLS:
+            return {"ok": False, "elapsed_ms": _elapsed_ms(start),
+                    "changed": round(changed, 4)}
+        now = time.monotonic()
+        if now >= deadline:
+            return {"ok": False, "elapsed_ms": _elapsed_ms(start),
+                    "changed": round(changed, 4)}
+        time.sleep(min(_POLL_INTERVAL_MS / 1000.0, max(0.0, deadline - now)))
+
+
 # ---------------------------------------------------------------------------
 # tool registry contract
 # ---------------------------------------------------------------------------
@@ -345,5 +464,16 @@ TOOLS = [
         ),
         schema=WaitIdArgs,
         handler=handler_wait_gone,
+    ),
+    ToolDef(
+        name="wait_change",
+        description=(
+            "Wait (inside this call) until a screen region's pixels change "
+            "past the threshold fraction. Covers loading spinners, progress "
+            "bars and canvas updates the tree cannot describe. Returns "
+            "ok/elapsed_ms/changed; ok=False on timeout."
+        ),
+        schema=WaitChangeArgs,
+        handler=handler_wait_change,
     ),
 ]

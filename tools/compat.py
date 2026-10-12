@@ -156,6 +156,36 @@ class ClickArgs(BaseModel):
         return self
 
 
+class DoubleClickArgs(BaseModel):
+    x: float | None = None
+    y: float | None = None
+    button: str = "left"
+    target: str | None = Field(
+        default=None,
+        description="Element id this double-click intends; required in the "
+                    "safe profile so the point is verified against it.",
+    )
+    frame: str | None = Field(
+        default=None,
+        description="Frame id from a fresh screenshot/zoom; x/y are image "
+                    "pixels then. Required for coordinate double-clicks in "
+                    "the safe profile.",
+    )
+
+    _coord = field_validator("x", "y", mode="before")(_check_coord)
+    _button = field_validator("button", mode="before")(_check_button)
+
+    @model_validator(mode="after")
+    def _both_or_neither(self) -> "DoubleClickArgs":
+        if (self.x is None) != (self.y is None):
+            raise ValueError("give both x and y, or neither")
+        return self
+
+
+class CursorPositionArgs(BaseModel):
+    pass
+
+
 class MoveArgs(BaseModel):
     x: float
     y: float
@@ -708,6 +738,39 @@ def _tool_click(args: ClickArgs) -> dict:
     return result
 
 
+def _tool_double_click(args: DoubleClickArgs) -> dict:
+    refusal, point = _anchor(args.target, args.frame, args.x, args.y, required=True)
+    if refusal:
+        return refusal
+    events: list[dict] = []
+    if point is not None:
+        events.append({"type": "mouse", "action": "move", "x": point[0], "y": point[1]})
+    # One SendInput batch: the OS only mints a real double-click (and the
+    # app only sees WM_LBUTTONDBLCLK) when down/up/down/up land inside its
+    # double-click time. Two separate click calls cannot promise that.
+    events.append({"type": "mouse", "action": "down", "button": args.button})
+    events.append({"type": "mouse", "action": "up", "button": args.button})
+    events.append({"type": "mouse", "action": "down", "button": args.button})
+    events.append({"type": "mouse", "action": "up", "button": args.button})
+    _send_input(events)
+    result: dict = {"ok": True, "button": args.button, "clicks": 2}
+    if point is not None:
+        result["x"], result["y"] = point
+    if args.target is not None:
+        result["target"] = args.target
+    if args.frame is not None:
+        result["frame"] = args.frame
+    return result
+
+
+def _tool_cursor_position(args: CursorPositionArgs) -> dict:
+    try:
+        x, y = _cursor_pos()
+    except Exception as exc:  # noqa: BLE001 - unreadable cursor is data
+        return _refuse("CURSOR_UNREADABLE", str(exc)[:200])
+    return {"ok": True, "x": x, "y": y}
+
+
 def _tool_move(args: MoveArgs) -> dict:
     refusal, point = _anchor(args.target, args.frame, args.x, args.y,
                              required=args.drag)
@@ -847,6 +910,16 @@ _tool_move.__doc__ = (
     "from_x/from_y plus target/frame so both drag endpoints are verified. "
     "A plain unbound move still works for hovering."
 )
+_tool_double_click.__doc__ = (
+    "Double-click the left/right/middle mouse button. Same binding contract "
+    "as click (target required; frame for coordinates), but both press pairs "
+    "go out in one SendInput batch so the OS mints a real double-click. Two "
+    "separate click calls cannot promise the OS timing."
+)
+_tool_cursor_position.__doc__ = (
+    "Read the current desktop cursor position. Read-only observation for "
+    "grounding follow-ups; it never moves the pointer."
+)
 _tool_scroll.__doc__ = (
     "Scroll the wheel up/down, or horizontally left/right - at the target "
     "element (its center, or x/y as frame pixels when given). The safe "
@@ -863,6 +936,8 @@ _tool_clipboard_set.__doc__ = "Put text on the Windows clipboard."
 
 TOOLS: list[dict] = [
     _bind("click", ClickArgs, _tool_click),
+    _bind("double_click", DoubleClickArgs, _tool_double_click),
+    _bind("cursor_position", CursorPositionArgs, _tool_cursor_position),
     _bind("move", MoveArgs, _tool_move),
     _bind("scroll", ScrollArgs, _tool_scroll),
     _bind("shortcut", ShortcutArgs, _tool_shortcut),

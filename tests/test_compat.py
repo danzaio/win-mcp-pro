@@ -78,6 +78,8 @@ def dry(monkeypatch):
 def test_registry_shape():
     assert [t["name"] for t in TOOLS] == [
         "click",
+        "double_click",
+        "cursor_position",
         "move",
         "scroll",
         "shortcut",

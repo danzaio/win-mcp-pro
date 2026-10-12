@@ -11,7 +11,7 @@ Give your MCP client access to Windows controls, not just screenshots. win-mcp-p
 
 Separate screenshot, mouse and keyboard tools let the client work by coordinates when an app doesn't expose useful controls; by default that input is bound to the element it intends and verified before anything is sent. Window and process tools, clipboard access, file operations and PowerShell cover tasks outside the UI too.
 
-The server runs on your Windows PC over stdio, using your existing MCP client for reasoning. It has 63 registered tools; you choose which ones to expose.
+The server runs on your Windows PC over stdio, using your existing MCP client for reasoning. It has 67 registered tools; you choose which ones to expose.
 
 ![A local MCP client calls win-mcp-pro over stdio to inspect and act on Windows app controls through UI Automation.](docs/diagrams/architecture.svg)
 
@@ -86,19 +86,19 @@ The starter configuration doesn't allow writes or clicks. Add `set_value`, `invo
 
 ## Tools
 
-There are 63 registered tools across 14 modules. Your MCP client receives their argument schemas through `tools/list`.
+There are 67 registered tools across 14 modules. Your MCP client receives their argument schemas through `tools/list`.
 
 | Group | Tools |
 | --- | --- |
 | Inspect the UI | `list_windows`, `snapshot`, `find`, `dump_tree`, `get_prop`, `get_patterns` |
 | Control patterns | `invoke`, `toggle`, `select`, `expand`, `scroll_into_view`, `focus`, `set_value`, `get_value`, `paste_text`, `menu_click` |
-| Input and clipboard | `click`, `move`, `scroll`, `shortcut`, `clipboard_get`, `clipboard_set` |
-| Wait for a state | `wait`, `wait_text`, `wait_focus`, `wait_enabled`, `wait_gone` |
+| Input and clipboard | `click`, `double_click`, `cursor_position`, `move`, `scroll`, `shortcut`, `clipboard_get`, `clipboard_set` |
+| Wait for a state | `wait`, `wait_text`, `wait_focus`, `wait_enabled`, `wait_gone`, `wait_change` |
 | Windows and processes | `app_launch`, `win_move`, `win_resize`, `win_min`, `win_max`, `win_restore`, `win_snap`, `get_hwnd_pid_path`, `proc_tree`, `is_elevated`, `integrity_level`, `exclude_proc`, `kill_proc` |
 | System | `powershell`, `fs_list`, `fs_read`, `fs_write`, `registry_get`, `notify`, `scrape_dom`* |
 | Transaction helpers | `preview`, `dry_run`, `before_after`, `profile` |
 | Images | `screenshot`, `zoom` |
-| OCR | `ocr_read` |
+| OCR | `ocr_read`, `ocr_click` |
 | Browser (isolated) | `browser_open`, `browser_status`, `browser_snapshot`, `browser_click`, `browser_fill`, `browser_read`, `browser_close` |
 | Replay and diagnostics | `replay`, `doctor` |
 
@@ -157,7 +157,7 @@ Install the development extra and run the unit and offline runner tests:
 .\.venv\Scripts\python.exe -m pytest tests eval/test_smoke.py -q
 ```
 
-The local validation on 12 October 2026 passed **480 tests**, with the opt-in live tests skipped in that run; all four live files were run separately and passed. A built wheel was also installed in a clean environment and checked through a real MCP stdio connection. `docs/parity.md` maps each advertised capability to the test or bench task that proves it.
+The local validation on 12 October 2026 passed **492 tests** (unit suite plus eval smoke), with the opt-in live tests skipped in that run; all four live files were run separately and passed. A built wheel was also installed in a clean environment and checked through a real MCP stdio connection. `docs/parity.md` maps each advertised capability to the test or bench task that proves it.
 
 The UIA live test creates its own disposable WinForms window. It checks scoped snapshots, value writes and button invocation with fresh readback, then closes its own processes. It is not a claim that every Windows application has been tested.
 

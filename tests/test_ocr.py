@@ -170,7 +170,7 @@ def test_recognize_call_site_is_loop_safe(monkeypatch):
 
 def test_tool_surface():
     names = {t["name"] for t in ocr.TOOLS}
-    assert names == {"ocr_read"}
+    assert names == {"ocr_read", "ocr_click"}
     for tool in ocr.TOOLS:
         assert tool["description"].strip()
         assert callable(tool["handler"])

@@ -6,7 +6,8 @@ monitor - and recognizes its text with ``Windows.Media.Ocr`` (via the
 ``winsdk`` projection). The result carries the text, per-line and per-word
 bounding boxes, and the capture *frame* id: a word box center can be fed to
 ``click``/``zoom`` coordinates, so "read the screen, then click the word"
-stays frame-pinned.
+stays frame-pinned. ``ocr_click`` is that round-trip in one call: it reads,
+picks the matching word, verifies its center against ``target`` and clicks.
 
 Import-safe: ``mss``/``PIL``/``winsdk`` missing means a typed UNAVAILABLE at
 call time, never at import.
@@ -178,6 +179,39 @@ class OcrReadArgs(BaseModel):
         return self
 
 
+class OcrClickArgs(BaseModel):
+    text: str = Field(min_length=1, description="Substring to find in the OCR words.")
+    target: str | None = Field(
+        default=None,
+        description="Element id the word is expected inside; the word center "
+                    "is verified against it before any input. Required in the "
+                    "safe profile.",
+    )
+    monitor: int = Field(default=0, ge=0, description="Zero-based display index.")
+    left: int | None = Field(default=None, ge=0, description="Region start (all four or none).")
+    top: int | None = Field(default=None, ge=0)
+    right: int | None = Field(default=None, gt=0)
+    bottom: int | None = Field(default=None, gt=0)
+    language: str | None = Field(
+        default=None,
+        description="OCR language tag like 'en-US'; default: the user's installed languages.",
+    )
+    index: int = Field(
+        default=0, ge=0,
+        description="Which match to click when the text appears more than once.",
+    )
+    case_sensitive: bool = Field(
+        default=False, description="Match the text case-sensitively.",
+    )
+
+    @model_validator(mode="after")
+    def _complete_region(self) -> "OcrClickArgs":
+        given = [value is not None for value in (self.left, self.top, self.right, self.bottom)]
+        if any(given) and not all(given):
+            raise ValueError("give left/top/right/bottom together, or none for the full monitor")
+        return self
+
+
 # ------------------------------------------------------------------ handler
 
 
@@ -207,6 +241,68 @@ def handler_ocr_read(args: Any) -> dict:
             "width": width, "height": height, "chars": len(text)}
 
 
+def handler_ocr_click(args: Any) -> dict:
+    """OCR-read, then left-click the center of the matching word.
+
+    The capture is fresh (its frame is registered and returned), and the
+    word center is verified against ``target`` through the same
+    target/point check ``click`` uses - so "read the screen, then click
+    the word" stays pinned with zero stale-frame window.
+    """
+    m = OcrClickArgs(**dict(args or {}))
+    if _dry():
+        return {"ok": True, "dry_run": True, "monitor": m.monitor, "text": m.text}
+    from tools import compat
+
+    if m.target is None and not compat._unrestricted():
+        return {"ok": False, "error": "TARGET_REQUIRED",
+                "reason": "ocr_click needs the target element id the word is "
+                          "expected inside (pass target=..., or start the server "
+                          "with --input-unrestricted)"}
+    region = (m.left, m.top, m.right, m.bottom) if m.left is not None else None
+    try:
+        png_bytes, width, height, origin = _grab(m.monitor, region)
+    except ImportError:
+        return {"ok": False, "error": "UNAVAILABLE", "reason": _BACKEND_MISSING}
+    except ValueError as exc:
+        return {"ok": False, "error": "BAD_REGION", "reason": str(exc)}
+    except Exception as exc:  # noqa: BLE001 - capture failure is data
+        return {"ok": False, "error": "CAPTURE_FAILED", "reason": str(exc)[:200]}
+    try:
+        lines = _recognize(png_bytes, m.language)
+    except OcrError as exc:
+        return {"ok": False, "error": exc.code, "reason": exc.reason}
+    needle = m.text if m.case_sensitive else m.text.casefold()
+    matches: list[dict] = []
+    for line in lines:
+        for word in line["words"]:
+            haystack = word["text"] if m.case_sensitive else word["text"].casefold()
+            if needle in haystack:
+                matches.append(word)
+    if m.index >= len(matches):
+        return {"ok": False, "error": "TEXT_NOT_FOUND",
+                "reason": "OCR found %d word(s) matching %r" % (len(matches), m.text)}
+    word = matches[m.index]
+    left, top, right, bottom = word["bbox"]
+    frame = vision._frame_register(monitor=m.monitor,
+                                   left=origin["left"] + (m.left or 0),
+                                   top=origin["top"] + (m.top or 0),
+                                   scale=1.0, width=width, height=height)
+    dx, dy = vision.frame_translate(frame, (left + right) / 2.0, (top + bottom) / 2.0)
+    if m.target is not None:
+        refusal = compat._verify_target_point(m.target, dx, dy)
+        if refusal:
+            return refusal
+    compat._send_input([{"type": "mouse", "action": "move", "x": dx, "y": dy},
+                        {"type": "mouse", "action": "down", "button": "left"},
+                        {"type": "mouse", "action": "up", "button": "left"}])
+    result: dict = {"ok": True, "text": word["text"], "x": dx, "y": dy,
+                    "frame": frame}
+    if m.target is not None:
+        result["target"] = m.target
+    return result
+
+
 def _tool(name: str, description: str, schema, handler) -> dict:
     return {"name": name, "description": description, "schema": schema,
             "handler": handler}
@@ -219,4 +315,10 @@ TOOLS = [
           "capture frame id - a word-box center can be clicked through the "
           "frame-pinned path.",
           OcrReadArgs, handler_ocr_read),
+    _tool("ocr_click",
+          "Read text from pixels and left-click the center of the word "
+          "matching the given text. The capture is fresh, its frame id is "
+          "returned, and the word center is verified against target=... "
+          "before any input (required in the safe profile).",
+          OcrClickArgs, handler_ocr_click),
 ]
