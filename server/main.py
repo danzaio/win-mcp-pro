@@ -7,6 +7,7 @@ goes to stderr (see ``server.audit``).
 Run with::
 
     python -m server.main [--tools find,invoke] [--exclude-tools kill_proc]
+                          [--input-unrestricted]
 """
 
 from __future__ import annotations
@@ -50,6 +51,30 @@ def _call_handler(handler: Any, arguments: dict) -> Any:
             raise kwargs_error
         return handler(arguments)
     return handler(**arguments)
+
+
+def _enable_dpi_awareness() -> None:
+    """Per-monitor-v2 DPI awareness so pixels line up everywhere.
+
+    UIA rectangles, mss captures, WindowFromPoint hit-tests and SendInput
+    absolute coordinates must all speak the same physical-pixel space; the
+    default unaware process gets virtualized coordinates instead.
+    """
+    import sys
+
+    if sys.platform != "win32":
+        return
+    import ctypes
+
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
+        return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
 
 
 def _bridge_tools_to_registry() -> int:
@@ -204,6 +229,7 @@ def run_stdio_server(
     blocklist: list[str] | None = None,
 ) -> None:
     """Serve MCP on stdio until the client closes the connection."""
+    _enable_dpi_awareness()
     count = _bridge_tools_to_registry()
     # build_server() alone stays lazy so in-memory test sessions control
     # exactly which tools exist; production always bridges first.
@@ -230,7 +256,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--exclude-tools", help="comma-separated blocklist of tool names to hide"
     )
+    parser.add_argument(
+        "--input-unrestricted",
+        action="store_true",
+        help="allow unbound global input (legacy profile); the default "
+             "requires target=... (and frame=... for coordinate input)",
+    )
     args = parser.parse_args(argv)
+    from tools import compat
+
+    compat.set_unrestricted(args.input_unrestricted)
     # Fail-closed filtering: an explicit but empty --tools is a config error
     # (never silently "allow everything"); absent flags mean unrestricted.
     from .security import parse_tool_filter

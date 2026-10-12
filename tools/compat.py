@@ -13,12 +13,15 @@ input funnels through ``_send_input`` / ``_clipboard_read`` /
 from __future__ import annotations
 
 import ctypes
+import math
 import os
 import re
 import time
 from typing import Any, Callable, Mapping
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from tools import vision
 
 BUTTONS = ("left", "right", "middle")
 DIRECTIONS = ("up", "down", "left", "right")
@@ -77,8 +80,10 @@ def _check_coord(value: Any) -> float:
     if isinstance(value, bool):
         raise ValueError("coordinate must be a number, not a bool")
     number = float(value)
-    if number < 0:
-        raise ValueError("coordinate must be >= 0")
+    if not math.isfinite(number):
+        raise ValueError("coordinate must be finite")
+    if abs(number) > 1_000_000:
+        raise ValueError("coordinate is outside any sane desktop range")
     return number
 
 
@@ -129,6 +134,17 @@ class ClickArgs(BaseModel):
     x: float | None = None
     y: float | None = None
     button: str = "left"
+    target: str | None = Field(
+        default=None,
+        description="Element id this click intends; required in the safe "
+                    "profile so the point is verified against it.",
+    )
+    frame: str | None = Field(
+        default=None,
+        description="Frame id from a fresh screenshot/zoom; x/y are image "
+                    "pixels then. Required for coordinate clicks in the safe "
+                    "profile.",
+    )
 
     _coord = field_validator("x", "y", mode="before")(_check_coord)
     _button = field_validator("button", mode="before")(_check_button)
@@ -146,6 +162,16 @@ class MoveArgs(BaseModel):
     drag: bool = False
     from_x: float | None = None
     from_y: float | None = None
+    target: str | None = Field(
+        default=None,
+        description="Element id this move/drag intends; required for drags in "
+                    "the safe profile.",
+    )
+    frame: str | None = Field(
+        default=None,
+        description="Frame id from a fresh screenshot/zoom; coordinates are "
+                    "image pixels then.",
+    )
 
     _coord = field_validator("x", "y", "from_x", "from_y", mode="before")(_check_coord)
 
@@ -159,13 +185,41 @@ class MoveArgs(BaseModel):
 class ScrollArgs(BaseModel):
     direction: str
     amount: int
+    x: float | None = None
+    y: float | None = None
+    target: str | None = Field(
+        default=None,
+        description="Element id to scroll at (its center when x/y are given "
+                    "as frame pixels).",
+    )
+    frame: str | None = Field(
+        default=None,
+        description="Frame id from a fresh screenshot/zoom for x/y.",
+    )
 
     _direction = field_validator("direction", mode="before")(_check_direction)
     _amount = field_validator("amount", mode="before")(_check_amount)
+    _coord = field_validator("x", "y", mode="before")(_check_coord)
+
+    @model_validator(mode="after")
+    def _both_or_neither(self) -> "ScrollArgs":
+        if (self.x is None) != (self.y is None):
+            raise ValueError("give both x and y, or neither")
+        return self
 
 
 class ShortcutArgs(BaseModel):
     keys: str
+    target: str | None = Field(
+        default=None,
+        description="Element id whose window must receive the keys; required "
+                    "in the safe profile.",
+    )
+    activate: bool = Field(
+        default=True,
+        description="Bring the target window to the foreground first when "
+                    "needed; refusal when that cannot be confirmed.",
+    )
 
     _keys = field_validator("keys", mode="before")(_check_keys)
 
@@ -187,6 +241,10 @@ INPUT_KEYBOARD = 1
 
 MOUSEEVENTF_MOVE = 0x0001
 MOUSEEVENTF_ABSOLUTE = 0x8000
+#: Absolute coordinates must be expressed over the whole virtual desktop;
+#: without this flag SendInput maps 0..65535 onto the primary monitor only,
+#: and every coordinate on (or left of) a secondary monitor lands wrong.
+MOUSEEVENTF_VIRTUALDESK = 0x4000
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
 MOUSEEVENTF_RIGHTDOWN = 0x0008
@@ -272,7 +330,8 @@ def _to_input(event: dict) -> INPUT:
             dx, dy = _abs_xy(event["x"], event["y"])
             record.union.mi.dx = dx
             record.union.mi.dy = dy
-            record.union.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE
+            record.union.mi.dwFlags = (MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE
+                                       | MOUSEEVENTF_VIRTUALDESK)
         elif action in ("down", "up"):
             record.union.mi.dwFlags = BUTTON_FLAGS[(action, event["button"])]
         elif action == "wheel":
@@ -389,6 +448,238 @@ def _vk(token: str) -> int:
     raise ValueError(f"unknown key {token!r} in shortcut")
 
 
+# ------------------------------------------------------------- input binding
+#
+# Phase B2: every action binds to the element it intends. The default (safe)
+# profile refuses coordinate input without the frame id of a fresh capture
+# and the target element id; the translated desktop point must land inside
+# the target's rectangle and hit-test (and integrity-check) to the target's
+# process *before* a single input event is sent. Keyboard input requires the
+# target's window to be foreground, with a bounded activation attempt. Every
+# refusal returns a typed error with zero SendInput events.
+# ``--input-unrestricted`` restores the legacy global input for callers that
+# need it; a binding that IS provided is always verified, in either profile.
+
+UNRESTRICTED_ENV = "WINMCP_INPUT_UNRESTRICTED"
+_unrestricted_flag = False
+
+
+def set_unrestricted(enabled: bool) -> None:
+    """Switch the input profile (the server entrypoint calls this)."""
+    global _unrestricted_flag
+    _unrestricted_flag = bool(enabled)
+
+
+def _unrestricted() -> bool:
+    if _unrestricted_flag:
+        return True
+    return os.environ.get(UNRESTRICTED_ENV, "").strip().lower() in DRY_RUN_VALUES
+
+
+def _refuse(code: str, reason: str, **extra: Any) -> dict:
+    result = {"ok": False, "error": code, "reason": reason}
+    result.update(extra)
+    return result
+
+
+def _resolve_control(element_id: str) -> Any:
+    """Resolve any published element id to a live control, else None."""
+    from tools import patterns
+
+    try:
+        return patterns.resolve_element(element_id)
+    except Exception:
+        return None
+
+
+def _target_info(control: Any) -> dict | None:
+    """Process id + desktop rectangle of a control, or None when unreadable."""
+    try:
+        rect = control.BoundingRectangle
+        left = float(rect.left)
+        top = float(rect.top)
+        right = float(rect.right)
+        bottom = float(rect.bottom)
+        pid = int(control.ProcessId)
+    except Exception:
+        return None
+    if right < left or bottom < top or pid <= 0:
+        return None
+    return {"pid": pid, "rect": (left, top, right, bottom)}
+
+
+def _check_uipi(pid: int) -> dict:
+    from server.security import check_uipi
+
+    return check_uipi(pid)
+
+
+def _pid_of_window(user32: Any, hwnd: Any) -> int | None:
+    if not hwnd:
+        return None
+    pid = ctypes.c_ulong()
+    user32.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p,
+                                                ctypes.POINTER(ctypes.c_ulong)]
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return int(pid.value) or None
+
+
+def _hit_test_pid(x: float, y: float) -> int | None:
+    """Pid of the window under (x, y); None when no window is there."""
+    class _POINT(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+    user32 = _user32()
+    user32.WindowFromPoint.argtypes = [_POINT]
+    user32.WindowFromPoint.restype = ctypes.c_void_p
+    hwnd = user32.WindowFromPoint(_POINT(int(round(x)), int(round(y))))
+    return _pid_of_window(user32, hwnd)
+
+
+def _foreground_pid() -> int | None:
+    user32 = _user32()
+    user32.GetForegroundWindow.restype = ctypes.c_void_p
+    return _pid_of_window(user32, user32.GetForegroundWindow())
+
+
+def _activate_window(pid: int) -> bool:
+    """Bring a visible top-level window of ``pid`` to the foreground.
+
+    Best effort with a deadline: ``SetForegroundWindow`` can be denied (the
+    OS foreground lock), so the caller must treat False as a refusal, never
+    as "try anyway".
+    """
+    from ctypes import wintypes
+
+    user32 = _user32()
+    candidates: list[int] = []
+    WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, ctypes.c_void_p, ctypes.c_void_p)
+
+    def _collect(hwnd, _lparam):
+        if _pid_of_window(user32, hwnd) == pid and user32.IsWindowVisible(hwnd):
+            candidates.append(hwnd)
+        return True
+
+    user32.IsWindowVisible.argtypes = [ctypes.c_void_p]
+    user32.EnumWindows.argtypes = [WNDENUMPROC, ctypes.c_void_p]
+    user32.EnumWindows(WNDENUMPROC(_collect), None)
+    if not candidates:
+        return False
+    user32.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+    user32.SetForegroundWindow(candidates[0])
+    deadline = time.monotonic() + 0.6
+    while time.monotonic() < deadline:
+        if _foreground_pid() == pid:
+            return True
+        time.sleep(0.03)
+    return _foreground_pid() == pid
+
+
+def _frame_point(frame_id: str, x: float, y: float):
+    """Translate image pixels through a fresh frame, or refuse."""
+    state, frame = vision.frame_state(frame_id)
+    if state == "unknown":
+        return _refuse("FRAME_UNKNOWN",
+                       f"no capture frame {frame_id!r} in this session; take a "
+                       "screenshot or zoom first"), None
+    if state == "stale":
+        return _refuse("FRAME_STALE",
+                       f"frame {frame_id!r} is older than {vision.FRAME_TTL_MS} ms; "
+                       "capture again before clicking"), None
+    return None, vision.frame_translate(frame, x, y)
+
+
+def _verify_target_point(target_id: str, dx: float, dy: float) -> dict | None:
+    control = _resolve_control(target_id)
+    if control is None:
+        return _refuse("TARGET_NOT_FOUND",
+                       f"target {target_id!r} does not resolve to a live element")
+    info = _target_info(control)
+    if info is None:
+        return _refuse("TARGET_STALE",
+                       f"target {target_id!r} exposes no readable rectangle/process")
+    left, top, right, bottom = info["rect"]
+    if not (left <= dx <= right and top <= dy <= bottom):
+        return _refuse("TARGET_MISMATCH",
+                       f"point ({dx:.1f}, {dy:.1f}) is outside target "
+                       f"{target_id!r} rect ({left:.0f}, {top:.0f}, "
+                       f"{right:.0f}, {bottom:.0f})")
+    pid = info["pid"]
+    verdict = _check_uipi(pid)
+    if not verdict.get("ok"):
+        return _refuse(str(verdict.get("code", "INTEGRITY_CHECK_FAILED")),
+                       str(verdict.get("detail", "integrity check failed")))
+    hit = _hit_test_pid(dx, dy)
+    if hit != pid:
+        return _refuse("OCCLUDED",
+                       f"point ({dx:.1f}, {dy:.1f}) hit-tests to pid {hit!r}, "
+                       f"target pid is {pid}; another window covers it")
+    return None
+
+
+def _anchor(target_id: str | None, frame_id: str | None, x: float | None,
+            y: float | None, *, required: bool):
+    """Resolve the verified desktop point for an action.
+
+    Returns ``(refusal, point)``: on refusal ``point`` is None; otherwise
+    ``point`` is None only for a cursor-position action in the unrestricted
+    profile. With ``required=False`` (plain hover) an unbound move keeps
+    working in the safe profile; anything the caller *provides* is always
+    verified.
+    """
+    safe = not _unrestricted()
+    if x is not None:
+        if frame_id is not None:
+            refusal, point = _frame_point(frame_id, x, y)
+            if refusal:
+                return refusal, None
+            dx, dy = point
+        elif safe and (required or target_id is not None):
+            return _refuse(
+                "FRAME_REQUIRED",
+                "coordinate input needs the frame id from a fresh "
+                "screenshot/zoom (pass frame=..., or start the server with "
+                "--input-unrestricted for raw desktop coordinates)",
+            ), None
+        else:
+            dx, dy = float(x), float(y)
+        if target_id is None:
+            if safe and required:
+                return _refuse(
+                    "TARGET_REQUIRED",
+                    "input needs the target element id it intends (pass "
+                    "target=..., or start the server with "
+                    "--input-unrestricted)",
+                ), None
+            return None, (dx, dy)
+        refusal = _verify_target_point(target_id, dx, dy)
+        if refusal:
+            return refusal, None
+        return None, (dx, dy)
+    if target_id is not None:
+        control = _resolve_control(target_id)
+        if control is None:
+            return _refuse("TARGET_NOT_FOUND",
+                           f"target {target_id!r} does not resolve to a live element"), None
+        info = _target_info(control)
+        if info is None:
+            return _refuse("TARGET_STALE",
+                           f"target {target_id!r} exposes no readable rectangle/process"), None
+        left, top, right, bottom = info["rect"]
+        cx, cy = (left + right) / 2.0, (top + bottom) / 2.0
+        refusal = _verify_target_point(target_id, cx, cy)
+        if refusal:
+            return refusal, None
+        return None, (cx, cy)
+    if safe and required:
+        return _refuse(
+            "TARGET_REQUIRED",
+            "input needs the target element id it intends (pass target=..., "
+            "or start the server with --input-unrestricted)",
+        ), None
+    return None, None
+
+
 def _run(name: str, model: type[BaseModel], fn: Callable[[Any], dict], args: Any) -> dict:
     """Coerce args, then honor the DRY_RUN gate before any real work."""
     validated = _coerce(model, args)
@@ -398,44 +689,118 @@ def _run(name: str, model: type[BaseModel], fn: Callable[[Any], dict], args: Any
 
 
 def _tool_click(args: ClickArgs) -> dict:
+    refusal, point = _anchor(args.target, args.frame, args.x, args.y, required=True)
+    if refusal:
+        return refusal
     events: list[dict] = []
-    if args.x is not None:
-        events.append({"type": "mouse", "action": "move", "x": args.x, "y": args.y})
+    if point is not None:
+        events.append({"type": "mouse", "action": "move", "x": point[0], "y": point[1]})
     events.append({"type": "mouse", "action": "down", "button": args.button})
     events.append({"type": "mouse", "action": "up", "button": args.button})
     _send_input(events)
-    return {"ok": True, "x": args.x, "y": args.y, "button": args.button}
+    result: dict = {"ok": True, "button": args.button}
+    if point is not None:
+        result["x"], result["y"] = point
+    if args.target is not None:
+        result["target"] = args.target
+    if args.frame is not None:
+        result["frame"] = args.frame
+    return result
 
 
 def _tool_move(args: MoveArgs) -> dict:
+    refusal, point = _anchor(args.target, args.frame, args.x, args.y,
+                             required=args.drag)
+    if refusal:
+        return refusal
     events: list[dict] = []
     if not args.drag:
-        events.append({"type": "mouse", "action": "move", "x": args.x, "y": args.y})
+        if point is not None:
+            events.append({"type": "mouse", "action": "move",
+                           "x": point[0], "y": point[1]})
+        _send_input(events)
+        result: dict = {"ok": True}
+        if point is not None:
+            result["x"], result["y"] = point
+        return result
+    # Drag: the press-down point must be verified too, or the button goes
+    # down wherever the cursor happens to be (the bug the safe profile
+    # exists to prevent).
+    if args.from_x is not None:
+        start_refusal, start_point = _anchor(args.target, args.frame,
+                                             args.from_x, args.from_y, required=True)
+        if start_refusal:
+            return start_refusal
+    elif not _unrestricted():
+        return _refuse(
+            "FROM_REQUIRED",
+            "a drag needs from_x/from_y (image pixels of the same frame) in "
+            "the safe profile so the press-down point is verified too",
+        )
     else:
-        if args.from_x is not None:
-            start = (args.from_x, args.from_y)
-        else:
-            start = _cursor_pos()
-        events.append({"type": "mouse", "action": "move", "x": start[0], "y": start[1]})
-        events.append({"type": "mouse", "action": "down", "button": "left"})
-        events.append({"type": "mouse", "action": "move", "x": args.x, "y": args.y})
-        events.append({"type": "mouse", "action": "up", "button": "left"})
+        start_point = _cursor_pos()
+    assert point is not None and start_point is not None
+    events.append({"type": "mouse", "action": "move",
+                   "x": start_point[0], "y": start_point[1]})
+    events.append({"type": "mouse", "action": "down", "button": "left"})
+    events.append({"type": "mouse", "action": "move", "x": point[0], "y": point[1]})
+    events.append({"type": "mouse", "action": "up", "button": "left"})
     _send_input(events)
     return {"ok": True}
 
 
 def _tool_scroll(args: ScrollArgs) -> dict:
+    refusal, point = _anchor(args.target, args.frame, args.x, args.y, required=True)
+    if refusal:
+        return refusal
+    events: list[dict] = []
+    if point is not None:
+        events.append({"type": "mouse", "action": "move", "x": point[0], "y": point[1]})
     delta = args.amount * WHEEL_DELTA
     if args.direction in ("down", "left"):
         delta = -delta
     horizontal = args.direction in ("left", "right")
-    _send_input(
-        [{"type": "mouse", "action": "wheel", "delta": delta, "horizontal": horizontal}]
-    )
-    return {"ok": True, "direction": args.direction, "amount": args.amount}
+    events.append({"type": "mouse", "action": "wheel", "delta": delta,
+                   "horizontal": horizontal})
+    _send_input(events)
+    result = {"ok": True, "direction": args.direction, "amount": args.amount}
+    if point is not None:
+        result["x"], result["y"] = point
+    return result
 
 
 def _tool_shortcut(args: ShortcutArgs) -> dict:
+    activated = False
+    if args.target is not None:
+        control = _resolve_control(args.target)
+        if control is None:
+            return _refuse("TARGET_NOT_FOUND",
+                           f"target {args.target!r} does not resolve to a live element")
+        info = _target_info(control)
+        if info is None:
+            return _refuse("TARGET_STALE",
+                           f"target {args.target!r} exposes no readable rectangle/process")
+        pid = info["pid"]
+        verdict = _check_uipi(pid)
+        if not verdict.get("ok"):
+            return _refuse(str(verdict.get("code", "INTEGRITY_CHECK_FAILED")),
+                           str(verdict.get("detail", "integrity check failed")))
+        if _foreground_pid() != pid:
+            if not args.activate:
+                return _refuse("ACTIVATION_FAILED",
+                               f"target pid {pid} is not the foreground window "
+                               "and activate=false")
+            if not _activate_window(pid):
+                return _refuse("ACTIVATION_FAILED",
+                               f"could not bring target pid {pid} to the foreground")
+            activated = True
+    elif not _unrestricted():
+        return _refuse(
+            "TARGET_REQUIRED",
+            "keyboard input needs the target element id whose window should "
+            "receive it (pass target=..., or start the server with "
+            "--input-unrestricted)",
+        )
     tokens = args.keys.split("+")
     codes = [_vk(t) for t in tokens]
     events: list[dict] = []
@@ -444,7 +809,10 @@ def _tool_shortcut(args: ShortcutArgs) -> dict:
     for code in reversed(codes):
         events.append({"type": "key", "vk": code, "up": True})
     _send_input(events)
-    return {"ok": True, "keys": args.keys}
+    result = {"ok": True, "keys": args.keys}
+    if args.target is not None:
+        result["activated"] = activated
+    return result
 
 
 def _tool_clipboard_get(args: ClipboardGetArgs) -> dict:
@@ -466,15 +834,30 @@ def _bind(name: str, model: type[BaseModel], fn: Callable[[Any], dict]) -> dict:
 
 
 _tool_click.__doc__ = (
-    "Click the left/right/middle mouse button. Without x/y clicks where the "
-    "cursor is; with both it moves there first."
+    "Click the left/right/middle mouse button. Safe profile: pass x/y as image "
+    "pixels of a fresh screenshot/zoom (frame=...) together with the target "
+    "element id; the desktop point is verified against the target before any "
+    "input. With target only, clicks the target's center. Either way a target "
+    "is required; global cursor/raw-coordinate clicks need "
+    "--input-unrestricted."
 )
 _tool_move.__doc__ = (
-    "Move the pointer to (x, y). With drag=True the button goes down first "
-    "(at from_x/from_y or the cursor) and up at (x, y)."
+    "Move the pointer to (x, y), image pixels of frame=... when given. With "
+    "drag=True the button goes down first; the safe profile requires "
+    "from_x/from_y plus target/frame so both drag endpoints are verified. "
+    "A plain unbound move still works for hovering."
 )
-_tool_scroll.__doc__ = "Scroll the wheel up/down, or horizontally left/right."
-_tool_shortcut.__doc__ = "Type a chord like 'ctrl+s' or 'ctrl+shift+p'."
+_tool_scroll.__doc__ = (
+    "Scroll the wheel up/down, or horizontally left/right - at the target "
+    "element (its center, or x/y as frame pixels when given). The safe "
+    "profile requires target=... so the scroll cannot land on another window."
+)
+_tool_shortcut.__doc__ = (
+    "Type a chord like 'ctrl+s'. The safe profile requires target=...; the "
+    "target's window is brought to the foreground first when needed "
+    "(activate=false refuses instead). Unbound global keys need "
+    "--input-unrestricted."
+)
 _tool_clipboard_get.__doc__ = "Read text from the Windows clipboard."
 _tool_clipboard_set.__doc__ = "Put text on the Windows clipboard."
 

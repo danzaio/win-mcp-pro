@@ -37,10 +37,16 @@ def handler_of(name):
 
 @pytest.fixture
 def real(monkeypatch):
-    """Handlers with primitives captured; DRY_RUN off."""
+    """Handlers with primitives captured; DRY_RUN off.
+
+    These tests exercise the legacy global-input path, which the safe
+    default profile now refuses; the explicit unrestricted profile is what
+    a caller gets with ``--input-unrestricted``.
+    """
     import tools.compat as compat
 
     monkeypatch.delenv("DRY_RUN", raising=False)
+    monkeypatch.setenv("WINMCP_INPUT_UNRESTRICTED", "1")
     captured = {"events": []}
     monkeypatch.setattr(
         compat, "_send_input", lambda evs: captured["events"].extend(evs)
@@ -96,8 +102,6 @@ def test_click_args_valid():
 
 
 @pytest.mark.parametrize("bad", [
-    {"x": -1, "y": 5},
-    {"x": 5, "y": -3},
     {"button": "left2"},
     {"button": ""},
     {"x": "abc"},
@@ -110,19 +114,29 @@ def test_click_args_invalid(bad):
         model_of("click").model_validate(bad)
 
 
+def test_negative_coordinates_are_valid():
+    # Multi-monitor virtual desktops have monitors left of/above the
+    # primary one, so negative desktop coordinates must validate.
+    m = model_of("click")
+    assert m.model_validate({"x": -1920, "y": -200}).x == -1920.0
+    assert m.model_validate({"x": 5, "y": -3}).y == -3.0
+
+
 def test_click_dry_run(poisoned, monkeypatch):
     dry(monkeypatch)
     result = handler_of("click")({"x": 12, "y": 34, "button": "right"})
     assert result == {
         "dry_run": True,
-        "action": {"name": "click", "x": 12.0, "y": 34.0, "button": "right"},
+        "action": {"name": "click", "x": 12.0, "y": 34.0, "button": "right",
+                   "target": None, "frame": None},
     }
 
 
 def test_click_dry_run_no_position(poisoned, monkeypatch):
     dry(monkeypatch)
     result = handler_of("click")({})
-    assert result["action"] == {"name": "click", "x": None, "y": None, "button": "left"}
+    assert result["action"] == {"name": "click", "x": None, "y": None,
+                                "button": "left", "target": None, "frame": None}
 
 
 def test_click_real_at_position(real, monkeypatch):
@@ -166,10 +180,8 @@ def test_move_args_valid():
 
 @pytest.mark.parametrize("bad", [
     {},
-    {"x": -1, "y": 0},
     {"x": 1},
     {"y": 1},
-    {"x": 1, "y": 1, "from_x": -2},
     {"x": 1, "y": 1, "from_x": 3},  # from_y missing alongside from_x
     {"x": 1, "y": 1, "drag": "maybe"},
     {"x": 1, "y": 1, "drag": 2},
@@ -191,6 +203,8 @@ def test_move_dry_run(poisoned, monkeypatch):
             "drag": True,
             "from_x": 1.0,
             "from_y": 1.0,
+            "target": None,
+            "frame": None,
         },
     }
 
@@ -248,7 +262,8 @@ def test_scroll_dry_run(poisoned, monkeypatch):
     result = handler_of("scroll")({"direction": "down", "amount": 2})
     assert result == {
         "dry_run": True,
-        "action": {"name": "scroll", "direction": "down", "amount": 2},
+        "action": {"name": "scroll", "direction": "down", "amount": 2,
+                   "x": None, "y": None, "target": None, "frame": None},
     }
 
 
@@ -304,7 +319,8 @@ def test_shortcut_dry_run(poisoned, monkeypatch):
     result = handler_of("shortcut")({"keys": "Ctrl+Shift+S"})
     assert result == {
         "dry_run": True,
-        "action": {"name": "shortcut", "keys": "ctrl+shift+s"},
+        "action": {"name": "shortcut", "keys": "ctrl+shift+s",
+                   "target": None, "activate": True},
     }
 
 

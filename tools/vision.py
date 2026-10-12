@@ -16,6 +16,12 @@ Over the cap the image is omitted with a reason and only the path remains.
 Every capture reports its display origin so pixel results map back to
 desktop coordinates.
 
+Frames: every capture also registers a short-lived *frame* (id + desktop
+position + scale) in this process. Coordinate input (tools.compat) quotes
+that frame id, so a click can only use pixels from a fresh capture and the
+translated desktop point is verified against the target before anything is
+sent. ``FRAME_TTL_MS`` and ``FRAME_CAP`` bound freshness and memory.
+
 Import-safe: mss/PIL missing means a typed UNAVAILABLE error at call time,
 never at import.
 """
@@ -25,6 +31,8 @@ import base64
 import os
 import tempfile
 import time
+import uuid
+from collections import OrderedDict
 from typing import Any, Callable, Mapping
 
 from pydantic import BaseModel, Field
@@ -34,6 +42,58 @@ _BACKEND_MISSING = "vision backend unavailable (mss/pillow not installed)"
 #: PNGs at or under this size also ride back as MCP image content. Bigger
 #: ones stay file-only so a 4K screenshot cannot flood the protocol stream.
 _IMAGE_INLINE_MAX_BYTES = 4 * 1024 * 1024
+
+#: Coordinate frames expire quickly: a click should follow a fresh look.
+FRAME_TTL_MS = 30_000
+
+#: Frames kept in memory; the oldest ones are evicted first.
+FRAME_CAP = 16
+
+_frames: "OrderedDict[str, dict]" = OrderedDict()
+
+
+def _now_ms() -> float:
+    """Monotonic clock seam (tests can freeze it)."""
+    return time.monotonic() * 1000.0
+
+
+def _frame_register(*, monitor: int, left: float, top: float, scale: float,
+                    width: int, height: int) -> dict:
+    """Record where an image sits on the desktop; return its frame metadata."""
+    frame = {
+        "id": uuid.uuid4().hex[:12],
+        "monitor": int(monitor),
+        "left": float(left),
+        "top": float(top),
+        "scale": float(scale) if scale else 1.0,
+        "width": int(width),
+        "height": int(height),
+        "captured_at_ms": _now_ms(),
+    }
+    _frames[frame["id"]] = frame
+    while len(_frames) > FRAME_CAP:
+        _frames.popitem(last=False)
+    return dict(frame)
+
+
+def frame_state(frame_id: str) -> tuple[str, dict | None]:
+    """``("ok"|"stale"|"unknown", frame)`` for a frame id.
+
+    ``stale`` still returns the metadata so callers can explain what aged
+    out; ``unknown`` means this process never minted that id.
+    """
+    frame = _frames.get(frame_id)
+    if frame is None:
+        return "unknown", None
+    if _now_ms() - frame["captured_at_ms"] > FRAME_TTL_MS:
+        return "stale", dict(frame)
+    return "ok", dict(frame)
+
+
+def frame_translate(frame: Mapping[str, Any], x: float, y: float) -> tuple[float, float]:
+    """Image pixel (x, y) of ``frame`` -> desktop coordinate."""
+    scale = frame.get("scale") or 1.0
+    return (float(frame["left"]) + x / scale, float(frame["top"]) + y / scale)
 
 
 def _shot_dir() -> str:
@@ -124,8 +184,11 @@ def handler_screenshot(args: Any) -> dict:
         width, height = small.size
         rgb = small.tobytes()
     saved = _save_png(rgb, width, height, "shot")
+    frame = _frame_register(monitor=m.monitor, left=origin["left"],
+                            top=origin["top"], scale=m.scale,
+                            width=width, height=height)
     return {"ok": True, "monitor": m.monitor, "scale": m.scale,
-            "origin": origin, **saved}
+            "origin": origin, "frame": frame, **saved}
 
 
 def handler_zoom(args: Any) -> dict:
@@ -148,8 +211,13 @@ def handler_zoom(args: Any) -> dict:
 
     crop = Image.frombytes("RGB", (width, height), rgb).crop((m.left, m.top, right, bottom))
     saved = _save_png(crop.tobytes(), *crop.size, "zoom")
+    frame = _frame_register(monitor=m.monitor,
+                            left=origin["left"] + m.left,
+                            top=origin["top"] + m.top,
+                            scale=1.0,
+                            width=saved["width"], height=saved["height"])
     return {"ok": True, "region": [m.left, m.top, right, bottom],
-            "origin": origin, **saved}
+            "origin": origin, "frame": frame, **saved}
 
 
 def _tool(name: str, description: str, schema, handler: Callable) -> dict:
@@ -160,10 +228,13 @@ TOOLS = [
     _tool("screenshot",
           "Capture a display to a PNG file (vision fallback; tree-first stays "
           "default). The PNG also rides back as an MCP image content block when "
-          "it fits the inline cap; over the cap the result keeps the path only.",
+          "it fits the inline cap; over the cap the result keeps the path only. "
+          "The result carries a short-lived frame id that click/drag/scroll "
+          "accept as frame=..., pinning their coordinates to this capture.",
           ScreenshotArgs, handler_screenshot),
     _tool("zoom",
           "Crop a display region to a PNG file for reading small text, with the "
-          "same inline image delivery as screenshot.",
+          "same inline image delivery and frame id as screenshot; click regions "
+          "measured from the crop use that frame.",
           ZoomArgs, handler_zoom),
 ]

@@ -189,3 +189,65 @@ def test_mcp_route_over_cap_returns_text_only(fake_shot, monkeypatch):
     assert kinds == ["text"], kinds
     text = json.loads(result.content[0].text)
     assert "cap" in text["image_omitted"]
+
+
+# --- capture frames (Phase B2) ------------------------------------------------
+
+
+@pytest.fixture()
+def fresh_frames():
+    vision._frames.clear()
+    yield
+    vision._frames.clear()
+
+
+def test_screenshot_returns_frame_with_transform(fake_shot, fresh_frames):
+    res = vision.handler_screenshot({})
+    assert res["ok"] is True
+    frame = res["frame"]
+    assert frame["id"]
+    state, meta = vision.frame_state(frame["id"])
+    assert state == "ok"
+    assert (meta["left"], meta["top"], meta["scale"]) == (0.0, 0.0, 1.0)
+    assert vision.frame_translate(meta, 10, 5) == (10.0, 5.0)
+
+
+def test_zoom_frame_offsets_image_to_desktop(monkeypatch, tmp_path, fresh_frames):
+    monkeypatch.setattr(vision, "_capture", _fake_capture(origin=(100, 40)))
+    monkeypatch.setattr(vision, "_shot_dir", lambda: str(tmp_path))
+    res = vision.handler_zoom({"left": 8, "top": 6, "right": 24, "bottom": 22})
+    assert res["ok"] is True
+    frame = res["frame"]
+    assert (frame["left"], frame["top"]) == (108.0, 46.0)
+    assert vision.frame_translate(frame, 3, 4) == (111.0, 50.0)
+
+
+def test_scaled_screenshot_frame_translates_back(monkeypatch, tmp_path, fresh_frames):
+    monkeypatch.setattr(vision, "_capture", _fake_capture(w=64, h=48))
+    monkeypatch.setattr(vision, "_shot_dir", lambda: str(tmp_path))
+    res = vision.handler_screenshot({"scale": 0.5})
+    assert res["scale"] == 0.5
+    frame = res["frame"]
+    assert frame["scale"] == 0.5
+    assert vision.frame_translate(frame, 10, 8) == (20.0, 16.0)
+
+
+def test_frame_expiry_distinguishes_stale_from_unknown(monkeypatch, tmp_path, fresh_frames):
+    clock = {"ms": 1000.0}
+    monkeypatch.setattr(vision, "_now_ms", lambda: clock["ms"])
+    monkeypatch.setattr(vision, "_capture", _fake_capture())
+    monkeypatch.setattr(vision, "_shot_dir", lambda: str(tmp_path))
+    fid = vision.handler_screenshot({})["frame"]["id"]
+    assert vision.frame_state(fid)[0] == "ok"
+    clock["ms"] += vision.FRAME_TTL_MS + 1
+    state, meta = vision.frame_state(fid)
+    assert state == "stale" and meta["id"] == fid
+    assert vision.frame_state("f-missing") == ("unknown", None)
+
+
+def test_frame_registry_evicts_oldest(monkeypatch, tmp_path, fresh_frames):
+    monkeypatch.setattr(vision, "_capture", _fake_capture())
+    monkeypatch.setattr(vision, "_shot_dir", lambda: str(tmp_path))
+    ids = [vision.handler_screenshot({})["frame"]["id"] for _ in range(vision.FRAME_CAP + 1)]
+    assert vision.frame_state(ids[0])[0] == "unknown"
+    assert vision.frame_state(ids[-1])[0] == "ok"

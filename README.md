@@ -9,7 +9,7 @@
 
 Give your MCP client access to Windows controls, not just screenshots. win-mcp-pro reads the accessibility tree and finds controls by name or AutomationId. When a control exposes a UIA pattern, the client can use it to set a value, press a button or select an item.
 
-Separate screenshot, mouse and keyboard tools let the client work by coordinates when an app doesn't expose useful controls. Window and process tools, clipboard access, file operations and PowerShell cover tasks outside the UI too.
+Separate screenshot, mouse and keyboard tools let the client work by coordinates when an app doesn't expose useful controls; by default that input is bound to the element it intends and verified before anything is sent. Window and process tools, clipboard access, file operations and PowerShell cover tasks outside the UI too.
 
 The server runs on your Windows PC over stdio, using your existing MCP client for reasoning. It has 53 registered tools; you choose which ones to expose.
 
@@ -117,13 +117,19 @@ Some tools accept `confirm=True`. That is an argument the caller can supply, not
 
 Run unelevated unless the target application requires elevation. Windows privilege boundaries can prevent interaction with elevated windows.
 
+### Input binding
+
+Input tools are bound to the element they intend by default. `click` with x/y requires the `frame` id from a fresh `screenshot`/`zoom` (x/y are then image pixels of that capture) plus the `target` element id. Before one event is sent the server translates the point to desktop coordinates, checks it is inside the target's rectangle, hit-tests the window under it, and checks the target's integrity level; any mismatch comes back as a typed error (`FRAME_STALE`, `TARGET_MISMATCH`, `OCCLUDED`, `ELEVATION_REQUIRED`, ...) and no input is sent. `shortcut` requires a target whose window is brought to the foreground first when needed; `scroll` and drags are bound the same way. Start the server with `--input-unrestricted` to restore the legacy global input (raw coordinates and unbound keys) for scripts that need it.
+
+The server sets per-monitor DPI awareness at startup so UIA rectangles, captures and input share one physical-pixel space. Captures report a short-lived frame id and their display origin; absolute input spans the full virtual desktop, including monitors with negative coordinates.
+
 The server writes JSONL invocation metadata to stderr: tool names, argument field names and success or error events. It does not keep a durable action history or verify UI effects on your behalf.
 
 ## Compatibility
 
 UI inspection depends on the application's UI Automation provider. Standard accessible controls are the intended target. Custom canvases, games and some Electron interfaces may expose little useful data.
 
-`screenshot` and `zoom` save PNG files and return their paths. When the PNG fits the inline cap (4 MB), the same bytes also ride back as an MCP image content block; over the cap the result keeps the path only, with a reason. Each capture reports its display origin so pixels map back to desktop coordinates. The server doesn't automatically switch to screenshots when UIA cannot find a control.
+`screenshot` and `zoom` save PNG files and return their paths. When the PNG fits the inline cap (4 MB), the same bytes also ride back as an MCP image content block; over the cap the result keeps the path only, with a reason. Each capture reports its display origin and a short-lived frame id: input tools accept `frame=...` so a click follows a fresh look, and a stale frame is refused instead of clicking at old pixels. The server doesn't automatically switch to screenshots when UIA cannot find a control.
 
 Snapshot caching is used only when the installed UIA library and control support it. Otherwise the tree is read directly. Time budgets are checked between UIA calls; they cannot interrupt a blocked COM call. `find` and `dump_tree` have depth and node limits, not hard wall-clock deadlines.
 
@@ -140,7 +146,7 @@ Install the development extra and run the unit and offline runner tests:
 .\.venv\Scripts\python.exe -m pytest tests eval/test_smoke.py -q
 ```
 
-The local validation on 12 October 2026 passed **396 tests**, with the opt-in live test skipped in that run. That live test was run separately and passed. A built wheel was also installed in a clean environment and checked through a real MCP stdio connection.
+The local validation on 12 October 2026 passed **427 tests**, with the two opt-in live tests skipped in that run; both were run separately and passed. A built wheel was also installed in a clean environment and checked through a real MCP stdio connection.
 
 The live test creates its own disposable WinForms window. It checks scoped snapshots, value writes and button invocation with fresh readback, then closes its own processes. It is not a claim that every Windows application has been tested.
 
@@ -152,6 +158,19 @@ try {
     .\.venv\Scripts\python.exe -m pytest tests/test_live_uia.py -q
 } finally {
     $env:WINMCP_RUN_LIVE_UIA = $null
+}
+```
+
+The click-binding live test creates its own window, takes a frame of it and
+clicks its button through the frame-pinned path; it asserts the effect from
+the fixture's own title and restores the cursor afterwards:
+
+```powershell
+$env:WINMCP_RUN_LIVE_CLICK = "1"
+try {
+    .\.venv\Scripts\python.exe -m pytest tests/test_live_click_binding.py -q
+} finally {
+    $env:WINMCP_RUN_LIVE_CLICK = $null
 }
 ```
 

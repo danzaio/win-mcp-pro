@@ -71,9 +71,21 @@ UIA enumerates more when the process is elevated, and an **unelevated server can
 - Target window is elevated: restart the terminal as Administrator and start the server from it.
 - The server may return `ELEVATION_REQUIRED` when integrity levels do not line up. UIA calls are synchronous; a traversal budget cannot interrupt a COM call that is already blocked.
 
+## Input binding
+
+Coordinate input is bound by default (the *safe profile*):
+
+- `click` with x/y needs `frame=` (from a fresh `screenshot`/`zoom`; x/y are image pixels of that capture) and `target=` (the element the click intends). With `target` only, the click goes to the target's center.
+- Before any event is sent, the point is translated to desktop coordinates, checked against the target's rectangle, hit-tested (`WindowFromPoint`), and the target's integrity level is checked. Mismatches return typed errors - `FRAME_REQUIRED`, `FRAME_STALE`, `FRAME_UNKNOWN`, `TARGET_REQUIRED`, `TARGET_MISMATCH`, `OCCLUDED`, `ELEVATION_REQUIRED`, `INTEGRITY_CHECK_FAILED` - with **zero input sent**.
+- `shortcut` requires `target=` and brings its window to the foreground first when needed (`activate=false` refuses instead; `ACTIVATION_FAILED` when the OS foreground lock refuses).
+- `scroll` uses the target center or x/y of the frame; drags need `from_x/from_y` plus target/frame so both endpoints verify. A plain unbound `move` still works for hovering.
+- `--input-unrestricted` starts the legacy profile (raw coordinates, unbound keys) for scripts that need it. Frames are still validated whenever provided.
+
+Frames expire after 30 seconds and only the last 16 are kept. The server runs with per-monitor DPI awareness so UIA rectangles, captures and input share one physical-pixel space; absolute input spans the full virtual desktop (negative monitor coordinates included).
+
 ## When to use the vision fallback
 
-`screenshot` and `zoom` capture the selected display and save PNGs under the system temp directory. When the PNG fits the inline cap (4 MB), the same bytes are delivered as an MCP image content block; over the cap the result keeps the path only, with a reason. Each result reports the display origin so image pixels map back to desktop coordinates. Their calls do not record a reason, and no cost or human-confirmation gate is enforced. They are excluded by the read-only allowlist above.
+`screenshot` and `zoom` capture the selected display and save PNGs under the system temp directory. When the PNG fits the inline cap (4 MB), the same bytes are delivered as an MCP image content block; over the cap the result keeps the path only, with a reason. Each result reports the display origin and a short-lived frame id (`click`/`drag`/`scroll` accept `frame=...`); stale frames are refused with `FRAME_STALE` before any input. Their calls do not record a reason, and no cost or human-confirmation gate is enforced. They are excluded by the read-only allowlist above.
 
 - Canvas, WebGL, or a custom-rendered surface with no UIA provider.
 - An icon or glyph with no accessible name at all.
