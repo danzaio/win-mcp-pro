@@ -28,6 +28,7 @@ never at import.
 from __future__ import annotations
 
 import base64
+import ctypes
 import os
 import tempfile
 import time
@@ -35,7 +36,7 @@ import uuid
 from collections import OrderedDict
 from typing import Any, Callable, Mapping
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 _BACKEND_MISSING = "vision backend unavailable (mss/pillow not installed)"
 
@@ -158,6 +159,10 @@ class ZoomArgs(BaseModel):
     monitor: int = Field(default=0, ge=0)
 
 
+class DisplaysArgs(BaseModel):
+    pass
+
+
 def _validate_region(left: int, top: int, right: int, bottom: int,
                      width: int, height: int) -> None:
     if right <= left or bottom <= top:
@@ -224,6 +229,145 @@ def _tool(name: str, description: str, schema, handler: Callable) -> dict:
     return {"name": name, "description": description, "schema": schema, "handler": handler}
 
 
+def _enum_displays() -> list[dict]:
+    """One entry per monitor: name, desktop rect, primary flag, DPI.
+
+    ``EnumDisplayMonitors`` + ``GetMonitorInfoW`` have described every
+    Windows display since XP; ``GetDpiForMonitor`` (8.1+) is best-effort and
+    comes back null where the OS will not say. Swappable seam for tests.
+    """
+    user32 = ctypes.windll.user32
+    shcore = getattr(ctypes.windll, "shcore", None)
+
+    class _RECT(ctypes.Structure):
+        _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                    ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+    class _INFO(ctypes.Structure):
+        _fields_ = [("cbSize", ctypes.c_ulong), ("rcMonitor", _RECT),
+                    ("rcWork", _RECT), ("dwFlags", ctypes.c_ulong),
+                    ("szDevice", ctypes.c_wchar * 32)]
+
+    found: list[dict] = []
+
+    @ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p,
+                        ctypes.POINTER(_RECT), ctypes.c_void_p)
+    def _callback(hmonitor, _hdc, _rect, _data):
+        info = _INFO()
+        info.cbSize = ctypes.sizeof(_INFO)
+        if user32.GetMonitorInfoW(hmonitor, ctypes.byref(info)):
+            rc = info.rcMonitor
+            dpi: list[int] | None = None
+            if shcore is not None:
+                dx, dy = ctypes.c_uint(0), ctypes.c_uint(0)
+                try:
+                    if shcore.GetDpiForMonitor(int(hmonitor), 0,
+                                              ctypes.byref(dx), ctypes.byref(dy)) == 0:
+                        dpi = [int(dx.value), int(dy.value)]
+                except Exception:  # noqa: BLE001 - DPI is best-effort
+                    dpi = None
+            found.append({
+                "index": len(found),
+                "name": info.szDevice,
+                "left": int(rc.left), "top": int(rc.top),
+                "width": int(rc.right - rc.left),
+                "height": int(rc.bottom - rc.top),
+                "primary": bool(info.dwFlags & 1),
+                "dpi": dpi,
+            })
+        return 1
+
+    if not user32.EnumDisplayMonitors(None, None, _callback, 0):
+        raise OSError("EnumDisplayMonitors failed")
+    return found
+
+
+def handler_displays(args: Any) -> dict:
+    """List the attached displays with geometry, primary flag and DPI."""
+    try:
+        displays = _enum_displays()
+    except Exception as exc:  # noqa: BLE001 - enumeration failure is data
+        return {"ok": False, "error": "DISPLAY_UNREADABLE", "reason": str(exc)[:200]}
+    return {"ok": True, "count": len(displays), "displays": displays}
+
+
+_IMG_FORMATS = {
+    "png": "PNG", "jpeg": "JPEG", "jpg": "JPEG",
+    "pdf": "PDF", "bmp": "BMP", "gif": "GIF",
+}
+
+
+class ImgConvertArgs(BaseModel):
+    path: str = Field(description="source image file (must exist)")
+    format: str | None = Field(
+        default=None,
+        description="target format: png, jpeg, pdf, bmp or gif "
+                    "(default: from the output extension, else png)",
+    )
+    output: str | None = Field(
+        default=None,
+        description="destination file; default: alongside the source with the new extension",
+    )
+    max_width: int | None = Field(
+        default=None, gt=0,
+        description="downscale so the width fits (aspect kept); omit to keep pixels",
+    )
+
+    @field_validator("format", mode="before")
+    @classmethod
+    def _known_format(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if not isinstance(value, str) or value.strip().lower() not in _IMG_FORMATS:
+            raise ValueError(f"format must be one of {', '.join(sorted(_IMG_FORMATS))}")
+        return value.strip().lower()
+
+
+def handler_img_convert(args: Any) -> dict:
+    """Re-encode (and optionally downscale) an image file.
+
+    The receipt-to-PDF shaped task with no screen involved: read pixels from
+    disk, write them back in another format. Never overwrites its own input.
+    """
+    import os.path
+
+    try:
+        from PIL import Image
+    except ImportError:
+        return {"ok": False, "error": "UNAVAILABLE", "reason": _BACKEND_MISSING}
+    m = ImgConvertArgs(**dict(args or {}))
+    if not os.path.isfile(m.path):
+        return {"ok": False, "error": "FILE_NOT_FOUND",
+                "reason": f"no file at {m.path!r}"}
+    fmt = m.format
+    if fmt is None and m.output is not None:
+        fmt = _IMG_FORMATS.get(os.path.splitext(m.output)[1].lstrip(".").lower())
+    fmt = fmt or "png"
+    if fmt not in _IMG_FORMATS:
+        return {"ok": False, "error": "BAD_FORMAT",
+                "reason": f"cannot infer a format from {m.output!r}"}
+    ext = ".jpg" if fmt in ("jpeg", "jpg") else f".{fmt}"
+    output = m.output or f"{os.path.splitext(m.path)[0]}{ext}"
+    if os.path.abspath(output) == os.path.abspath(m.path):
+        return {"ok": False, "error": "INPUT_PROTECTED",
+                "reason": "output would overwrite the input file"}
+    try:
+        image = Image.open(m.path)
+        image.load()
+        if fmt in ("jpeg", "jpg") or fmt == "pdf":
+            image = image.convert("RGB")
+        if m.max_width is not None and image.width > m.max_width:
+            image = image.resize(
+                (m.max_width, max(1, round(image.height * m.max_width / image.width))),
+                Image.LANCZOS)
+        image.save(output, _IMG_FORMATS[fmt])
+    except Exception as exc:  # noqa: BLE001 - corrupt input is data
+        return {"ok": False, "error": "CONVERT_FAILED", "reason": str(exc)[:200]}
+    return {"ok": True, "output": output, "format": fmt,
+            "width": image.width, "height": image.height,
+            "bytes": os.path.getsize(output)}
+
+
 TOOLS = [
     _tool("screenshot",
           "Capture a display to a PNG file (vision fallback; tree-first stays "
@@ -237,4 +381,13 @@ TOOLS = [
           "same inline image delivery and frame id as screenshot; click regions "
           "measured from the crop use that frame.",
           ZoomArgs, handler_zoom),
+    _tool("displays",
+          "List the attached displays: name, desktop rect, primary flag and "
+          "DPI (best-effort). Read-only geometry for grounding follow-ups.",
+          DisplaysArgs, handler_displays),
+    _tool("img_convert",
+          "Re-encode an image file (png/jpeg/pdf/bmp/gif) with optional "
+          "downscale. File-to-file pixels with no screen involved; never "
+          "overwrites its input.",
+          ImgConvertArgs, handler_img_convert),
 ]

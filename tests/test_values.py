@@ -454,7 +454,8 @@ def test_schemas_validate():
 
 def test_tools_list_contract():
     names = [t["name"] for t in values.TOOLS]
-    assert names == ["set_value", "get_value", "paste_text", "menu_click"]
+    assert names == ["set_value", "get_value", "paste_text", "menu_click",
+                      "form_fill", "table_extract", "choose_file"]
     for tool in values.TOOLS:
         assert tool["description"] and len(tool["description"]) > 20
         assert tool["handler"] is not None

@@ -6,7 +6,7 @@ Run::
 
 Spawns two disposable WinForms fixtures (a target and a decoy; each logs
 every observable effect to its own JSONL file), starts the MCP server over
-stdio, and runs 17 deterministic driver-conformance tasks. Effects are
+stdio, and runs 24 deterministic driver-conformance tasks. Effects are
 asserted from the fixtures' own logs - the external oracle - never from the
 server's reply, and the decoy's log proves zero wrong-target leakage. Writes
 JSON + a markdown summary and exits non-zero if any task fails.
@@ -37,7 +37,10 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "bench" / "fixtures" / "winforms_probe.ps1"
 ALLOWED = ("list_windows,snapshot,find,get_prop,set_value,invoke,zoom,click,"
            "wait_text,wait_enabled,dump_tree,ocr_read,replay,doctor,"
-           "cursor_position,double_click,ocr_click,wait_change")
+           "cursor_position,double_click,ocr_click,wait_change,"
+           "menu_click,form_fill,table_extract,choose_file,displays,"
+           "img_convert,code_goto,win_close,win_topmost,focus,"
+           "win_min,win_restore,shortcut")
 
 
 class SkipTask(Exception):
@@ -127,7 +130,8 @@ def _spawn_fixture(title: str, log: str, x: int, y: int, names: dict) -> subproc
             "-File", str(FIXTURE), "-Title", title, "-Log", log,
             "-X", str(x), "-Y", str(y),
             "-InputName", names["input"], "-Button1Name", names["commit"],
-            "-Button2Name", names["alt"], "-StatusName", names["status"]]
+            "-Button2Name", names["alt"], "-StatusName", names["status"],
+            "-ClickName", names["click"], "-GridName", names["grid"]]
     return subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL)
 
@@ -162,13 +166,16 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
     decoy_title = f"WinMCP Bench Decoy {suffix}"
     tk_title = f"WinMCP Bench Tk {suffix}"
     target_names = {"input": f"Bench Input {suffix}", "commit": f"Bench Commit {suffix}",
-                    "alt": f"Bench Alt {suffix}", "status": f"Bench Status {suffix}"}
+                    "alt": f"Bench Alt {suffix}", "status": f"Bench Status {suffix}",
+                    "click": f"Bench Tap {suffix}", "grid": f"Bench Grid {suffix}"}
     decoy_names = {"input": f"Decoy Input {suffix}", "commit": f"Decoy Commit {suffix}",
-                   "alt": f"Decoy Alt {suffix}", "status": f"Decoy Status {suffix}"}
+                   "alt": f"Decoy Alt {suffix}", "status": f"Decoy Status {suffix}",
+                   "click": f"Decoy Tap {suffix}", "grid": f"Decoy Grid {suffix}"}
 
     app_target = _spawn_fixture(target_title, target_log, 200, 150, target_names)
     app_decoy = _spawn_fixture(decoy_title, decoy_log, 900, 150, decoy_names)
     app_tk = _spawn_tk(tk_title, tk_log, 1450, 400)
+    extra_procs: list = []
 
     server_script = ("import runpy, sys\n"
                      f"sys.argv = ['server.main', '--tools', {ALLOWED!r}]\n"
@@ -227,7 +234,10 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         for element in captured.get("elements", []):
                             if element.get("kind") == "Window" and element["id"].startswith(prefix):
                                 return element["id"]
-                        raise AssertionError(f"window {hwnd} not among snapshot roots")
+                        roots = [(e.get("kind"), e.get("id"), e.get("name"))
+                                 for e in captured.get("elements", [])][:12]
+                        raise AssertionError(
+                            f"window {hwnd} not among snapshot roots: {roots}")
 
                     async def target_window() -> str:
                         return ctx.get("window") or await find_id(target_title, "Window")
@@ -512,27 +522,31 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         return f"double-click: 2 press pairs {gap_ms:.0f}ms apart"
 
                     async def t16():
-                        # ocr_click on the Alt button by its visible text; the
-                        # oracle (not the server reply) proves the hit, and
-                        # the decoy log proves nothing leaked across.
+                        # ocr_click on the big flat TAP HERE label by its text.
+                        # Stock button text is not reliably recognized by the
+                        # on-box WinOCR (measured: "Alt" never surfaces), so the
+                        # fixture carries an OCR-legible target; the mechanism
+                        # under test (find -> verify against target -> click ->
+                        # oracle event) is identical. The decoy log proves no
+                        # leakage across windows.
                         window = await target_window()
                         rect = (await call("get_prop", {"id": window, "prop": "rect"}))["value"]
                         vx, vy = _monitor_origin()
-                        decoy_before = _count(_read_events(decoy_log), "button2")
-                        target_before = _count(_read_events(target_log), "button2")
+                        decoy_before = _count(_read_events(decoy_log), "labelclick")
+                        target_before = _count(_read_events(target_log), "labelclick")
                         hit = await call("ocr_click", {
-                            "text": "Alt", "target": window,
+                            "text": "TAP", "target": window,
                             "left": rect["left"] - vx, "top": rect["top"] - vy,
                             "right": rect["right"] - vx, "bottom": rect["bottom"] - vy})
                         if not hit.get("ok") and hit.get("error") == "NO_OCR_LANGUAGE":
                             raise SkipTask("no OCR language pack on this machine")
                         assert hit["ok"], hit
-                        assert hit["text"].casefold() == "alt", hit
-                        assert _wait_for_count(target_log, "button2",
+                        assert "TAP" in hit["text"].upper(), hit
+                        assert _wait_for_count(target_log, "labelclick",
                                                target_before + 1,
                                                timeout=5.0) == target_before + 1
-                        assert _count(_read_events(decoy_log), "button2") == decoy_before
-                        return "ocr_click hit the Alt button by its text"
+                        assert _count(_read_events(decoy_log), "labelclick") == decoy_before
+                        return "ocr_click hit the TAP label by its text"
 
                     async def t17():
                         # wait_change, both directions: a static decoy region
@@ -553,18 +567,278 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         window = await target_window()
                         field = await find_in_window(window, target_names["input"], "Edit")
                         irect = (await call("get_prop", {"id": field, "prop": "rect"}))["value"]
-                        waiter = asyncio.create_task(call("wait_change", {
+                        waiter_kwargs = {
                             "left": irect["left"] - vx, "top": irect["top"] - vy,
                             "right": irect["right"] - vx, "bottom": irect["bottom"] - vy,
-                            "timeout_ms": 8000, "threshold": 0.02}))
-                        await asyncio.sleep(0.4)  # let the baseline settle first
-                        await call("set_value", {"id": field,
-                                                 "text": f"wait-change {suffix}"})
-                        fired = await waiter
+                            "timeout_ms": 8000, "threshold": 0.02}
+                        # The waiter runs on its own server connection: two
+                        # calls multiplexed over one stdio session serialize,
+                        # which would push set_value past the waiter's deadline.
+                        with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as errlog2:
+                            waiter_params = StdioServerParameters(
+                                command=sys.executable, args=["-c", server_script],
+                                cwd=str(ROOT))
+                            async with stdio_client(waiter_params, errlog=errlog2) as streams2:
+                                async with ClientSession(*streams2) as session2:
+                                    await session2.initialize()
+
+                                    async def call2(name, args=None):
+                                        reply = await session2.call_tool(name, args or {})
+                                        assert reply.is_error is False, reply.content
+                                        return json.loads(reply.content[0].text)
+
+                                    waiter = asyncio.create_task(
+                                        call2("wait_change", waiter_kwargs))
+                                    await asyncio.sleep(0.4)  # baseline settles first
+                                    wrote = await call("set_value", {
+                                        "id": field,
+                                        "text": f"wait-change {suffix}"})
+                                    assert wrote["ok"], wrote
+                                    fired = await waiter
                         assert fired["ok"] is True, fired
                         assert fired["changed"] > 0.02, fired
                         return (f"quiet region timed out, fresh text fired "
                                 f"in {fired['elapsed_ms']}ms")
+
+                    async def t18():
+                        shown = await call("displays", {})
+                        assert shown["ok"], shown
+                        assert shown["count"] >= 1, shown
+                        primaries = [d for d in shown["displays"] if d["primary"]]
+                        assert len(primaries) == 1, shown
+                        for display in shown["displays"]:
+                            assert display["width"] > 0 and display["height"] > 0, display
+                        primary = primaries[0]
+                        return (f"{shown['count']} display(s), primary "
+                                f"{primary['width']}x{primary['height']}")
+
+                    async def t19():
+                        window = await target_window()
+                        field = await find_in_window(window, target_names["input"], "Edit")
+                        text = f"formfill-{suffix}"
+                        filled = await call("form_fill", {
+                            "fields": [{"id": field, "text": text}]})
+                        assert filled["ok"] is True, filled
+                        assert filled["fields"][0]["verified"] is True, filled
+                        texts = [e.get("value") for e in _read_events(target_log)
+                                 if e.get("event") == "text"]
+                        assert texts and texts[-1] == text, texts[-5:]
+                        return "form_fill wrote one field with readback"
+
+                    async def t20():
+                        window = await target_window()
+                        grid = None
+                        for kind in ("Table", "DataGrid", "Custom"):
+                            try:
+                                grid = await find_in_window(window, target_names["grid"], kind)
+                                break
+                            except AssertionError:
+                                continue
+                        assert grid is not None, "grid not found as Table/DataGrid/Custom"
+                        table = await call("table_extract", {"id": grid})
+                        assert table["ok"], table
+                        assert table["rows"] == [["Key", "Val"], ["alpha", "1"],
+                                                 ["beta", "2"], ["gamma", "3"]], table
+                        return f"table_extract read {table['shape']}"
+
+                    async def t21():
+                        # real File > Open in Notepad, resolved by choose_file;
+                        # the window title proves the file landed. The fixtures
+                        # are TopMost, so they are minimized first: menu_click
+                        # walks the foreground window, and nothing can take the
+                        # foreground while a TopMost window stands.
+                        async def hwnd_of(title, pid):
+                            inventory = await call("list_windows", {})
+                            hit = [w for w in inventory["windows"]
+                                   if w["title"] == title and w["pid"] == pid]
+                            return hit[0]["hwnd"] if hit else None
+
+                        minimized = []
+                        for title, pid in ((target_title, app_target.pid),
+                                           (decoy_title, app_decoy.pid),
+                                           (tk_title, app_tk.pid)):
+                            hwnd = await hwnd_of(title, pid)
+                            assert hwnd, f"fixture {title} vanished"
+                            await call("win_min", {"hwnd": hwnd})
+                            minimized.append(hwnd)
+                        try:
+                            note = workdir / "openme.txt"
+                            note.write_text("opened-via-dialog", encoding="utf-8")
+                            proc = subprocess.Popen(
+                                ["notepad.exe"], stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            extra_procs.append(proc)
+                            try:
+                                np_hwnd = None
+                                deadline = time.monotonic() + 15
+                                while time.monotonic() < deadline:
+                                    inventory = await call("list_windows", {})
+                                    hit = [w for w in inventory["windows"]
+                                           if w["pid"] == proc.pid and w["title"]]
+                                    if hit:
+                                        np_hwnd = hit[0]["hwnd"]
+                                        break
+                                    await asyncio.sleep(0.3)
+                                assert np_hwnd, "notepad never appeared"
+                                np_window = await window_id_for(np_hwnd)
+                                # focus lands on the editor, not the window:
+                                # SetFocus on a top-level window is a no-op the
+                                # tool honestly refuses, while focusing the
+                                # Edit activates the window as a side effect.
+                                inner = await call("snapshot", {
+                                    "mode": "full", "root": np_window,
+                                    "depth": 3, "timeout_ms": 8000})
+                                edits = [e["id"] for e in inner.get("elements", [])
+                                         if e.get("kind") == "Edit"]
+                                assert edits, "notepad exposed no Edit control"
+                                focused = await call("focus", {"id": edits[0]})
+                                assert focused["ok"], focused
+                                # Ctrl+O opens the dialog on any UI language;
+                                # menu labels ("File" vs "Arquivo") do not.
+                                opened_menu = await call("shortcut", {
+                                    "keys": "ctrl+o", "target": edits[0]})
+                                assert opened_menu["ok"], opened_menu
+                                dlg_hwnd = None
+                                deadline = time.monotonic() + 10
+                                while time.monotonic() < deadline:
+                                    inventory = await call("list_windows", {})
+                                    hit = [w for w in inventory["windows"]
+                                           if w["pid"] == proc.pid
+                                           and w["title"] in ("Open", "Abrir")]
+                                    if hit:
+                                        dlg_hwnd = hit[0]["hwnd"]
+                                        break
+                                    await asyncio.sleep(0.3)
+                                assert dlg_hwnd, "Open dialog never appeared"
+                                # Owned dialogs hang under their owner in the
+                                # UIA tree, never under the desktop roots.
+                                dlg = None
+                                deadline = time.monotonic() + 10
+                                while time.monotonic() < deadline and dlg is None:
+                                    under = await call("snapshot", {
+                                        "mode": "full", "root": np_window,
+                                        "depth": 3, "timeout_ms": 8000})
+                                    for element in under.get("elements", []):
+                                        if (element.get("kind") in ("Window", "Dialog")
+                                                and (element.get("name") or "")
+                                                in ("Open", "Abrir")):
+                                            dlg = element["id"]
+                                            break
+                                    if dlg is None:
+                                        await asyncio.sleep(0.5)
+                                assert dlg, "Open dialog not under its owner"
+                                # confirm-button label is locale-shaped too:
+                                # read it off the live dialog, never assume.
+                                dlg_tree = await call("snapshot", {
+                                    "mode": "full", "root": dlg,
+                                    "depth": 3, "timeout_ms": 8000})
+                                confirm = next(
+                                    e["name"] for e in dlg_tree.get("elements", [])
+                                    if e.get("kind") == "Button"
+                                    and (e.get("name") or "").casefold() in ("open", "abrir"))
+                                chosen = await call("choose_file", {
+                                    "dialog": dlg, "path": str(note),
+                                    "button": confirm})
+                                assert chosen["ok"], chosen
+                                deadline = time.monotonic() + 10
+                                opened = False
+                                while time.monotonic() < deadline:
+                                    inventory = await call("list_windows", {})
+                                    titles = [w["title"] for w in inventory["windows"]
+                                              if w["pid"] == proc.pid]
+                                    if (not any(t in ("Open", "Abrir") for t in titles)
+                                            and any("openme" in t.lower() for t in titles)):
+                                        opened = True
+                                        break
+                                    await asyncio.sleep(0.3)
+                                assert opened, "dialog stayed or file never loaded"
+                                return "choose_file opened the file in Notepad"
+                            finally:
+                                _kill(proc)
+                        finally:
+                            for hwnd in minimized:
+                                try:
+                                    await call("win_restore", {"hwnd": hwnd})
+                                except Exception:
+                                    pass
+
+                    async def t22():
+                        from PIL import Image
+
+                        src = workdir / "gen.png"
+                        Image.new("RGB", (200, 100), "red").save(src)
+                        jpg = await call("img_convert", {
+                            "path": str(src), "format": "jpeg",
+                            "output": str(workdir / "gen.jpg"), "max_width": 100})
+                        assert jpg["ok"] and jpg["width"] == 100, jpg
+                        pdf = await call("img_convert", {
+                            "path": str(src), "format": "pdf",
+                            "output": str(workdir / "gen.pdf")})
+                        assert pdf["ok"], pdf
+                        refused = await call("img_convert", {
+                            "path": str(src), "format": "png",
+                            "output": str(src)})
+                        assert refused["error"] == "INPUT_PROTECTED", refused
+                        return "img_convert re-encoded jpeg+pdf, input protected"
+
+                    async def t23():
+                        # VS Code opens the file at its line in a new window;
+                        # win_close takes that window back down.
+                        target = workdir / "goto.txt"
+                        target.write_text("one\ntwo\nthree\n", encoding="utf-8")
+                        opened = await call("code_goto", {
+                            "path": str(target), "line": 2, "new_window": True})
+                        assert opened["ok"], opened
+                        code_hwnd = None
+                        deadline = time.monotonic() + 25
+                        while time.monotonic() < deadline:
+                            inventory = await call("list_windows", {})
+                            hit = [w for w in inventory["windows"]
+                                   if "goto.txt" in (w["title"] or "")]
+                            if hit:
+                                code_hwnd = hit[0]["hwnd"]
+                                break
+                            await asyncio.sleep(0.5)
+                        assert code_hwnd, "VS Code window never appeared"
+                        pinned = await call("win_topmost", {"hwnd": code_hwnd, "on": True})
+                        assert pinned["state"] == "topmost", pinned
+                        unpinned = await call("win_topmost", {"hwnd": code_hwnd, "on": False})
+                        assert unpinned["state"] == "normal", unpinned
+                        closed = await call("win_close", {"hwnd": code_hwnd})
+                        assert closed["ok"], closed
+                        return "code_goto opened at line, topmost round-trip, closed"
+
+                    async def t24():
+                        proc = subprocess.Popen(
+                            ["notepad.exe"], stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        extra_procs.append(proc)
+                        try:
+                            np_hwnd = None
+                            deadline = time.monotonic() + 15
+                            while time.monotonic() < deadline:
+                                inventory = await call("list_windows", {})
+                                hit = [w for w in inventory["windows"]
+                                       if w["pid"] == proc.pid and w["title"]]
+                                if hit:
+                                    np_hwnd = hit[0]["hwnd"]
+                                    break
+                                await asyncio.sleep(0.3)
+                            assert np_hwnd, "notepad never appeared"
+                            closed = await call("win_close", {"hwnd": np_hwnd})
+                            assert closed["ok"], closed
+                            deadline = time.monotonic() + 10
+                            while time.monotonic() < deadline:
+                                inventory = await call("list_windows", {})
+                                if not any(w["pid"] == proc.pid and w["title"]
+                                           for w in inventory["windows"]):
+                                    break
+                                await asyncio.sleep(0.3)
+                            else:
+                                raise AssertionError("notepad window survived win_close")
+                            return "win_close asked, window gone"
+                        finally:
+                            _kill(proc)
 
                     all_tasks = [
                         ("T01", "find target window (identity)", t01),
@@ -584,6 +858,13 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         ("T15", "double_click two press pairs", t15),
                         ("T16", "ocr_click by visible text", t16),
                         ("T17", "wait_change timeout + fire", t17),
+                        ("T18", "displays geometry", t18),
+                        ("T19", "form_fill with readback", t19),
+                        ("T20", "table_extract grid literals", t20),
+                        ("T21", "choose_file real Open dialog", t21),
+                        ("T22", "img_convert files + guard", t22),
+                        ("T23", "code_goto + topmost + close", t23),
+                        ("T24", "win_close dedicated window", t24),
                     ]
                     for tid, desc, fn in all_tasks:
                         if only and tid not in only:
@@ -593,6 +874,8 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
         _kill(app_target)
         _kill(app_decoy)
         _kill(app_tk)
+        for proc in extra_procs:
+            _kill(proc)
     return results, _summarize(results)
 
 

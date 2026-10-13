@@ -8,7 +8,9 @@ param(
   [string]$InputName = "Bench Input",
   [string]$Button1Name = "Bench Commit",
   [string]$Button2Name = "Bench Alt",
-  [string]$StatusName = "Bench Status"
+  [string]$StatusName = "Bench Status",
+  [string]$ClickName = "Bench Tap",
+  [string]$GridName = "Bench Grid"
 )
 
 # Disposable bench fixture (Phase D). Every observable effect is appended to
@@ -32,7 +34,7 @@ $script:benchForm = New-Object System.Windows.Forms.Form
 $script:benchForm.Text = $Title
 $script:benchForm.Name = 'McpBenchForm'
 $script:benchForm.Width = 460
-$script:benchForm.Height = 260
+$script:benchForm.Height = 430
 $script:benchForm.StartPosition = 'Manual'
 $script:benchForm.Location = New-Object System.Drawing.Point($X, $Y)
 $script:benchForm.TopMost = $true
@@ -48,12 +50,14 @@ $script:benchButton1 = New-Object System.Windows.Forms.Button
 $script:benchButton1.Name = 'BenchCommit'
 $script:benchButton1.AccessibleName = $Button1Name
 $script:benchButton1.Text = $Button1
+$script:benchButton1.Font = New-Object System.Drawing.Font('Segoe UI', 14)
 $script:benchButton1.SetBounds(20, 70, 190, 44)
 
 $script:benchButton2 = New-Object System.Windows.Forms.Button
 $script:benchButton2.Name = 'BenchAlt'
 $script:benchButton2.AccessibleName = $Button2Name
 $script:benchButton2.Text = $Button2
+$script:benchButton2.Font = New-Object System.Drawing.Font('Segoe UI', 14)
 $script:benchButton2.SetBounds(230, 70, 190, 44)
 
 $script:benchStatus = New-Object System.Windows.Forms.Label
@@ -62,6 +66,27 @@ $script:benchStatus.AccessibleName = $StatusName
 $script:benchStatus.Text = 'Ready'
 $script:benchStatus.Font = New-Object System.Drawing.Font('Segoe UI', 16)
 $script:benchStatus.SetBounds(20, 130, 400, 40)
+
+$script:benchClickLabel = New-Object System.Windows.Forms.Label
+$script:benchClickLabel.Name = 'BenchClickLabel'
+$script:benchClickLabel.AccessibleName = $ClickName
+$script:benchClickLabel.Text = 'TAP HERE'
+$script:benchClickLabel.Font = New-Object System.Drawing.Font('Segoe UI', 20)
+$script:benchClickLabel.SetBounds(20, 335, 400, 44)
+
+$script:benchGrid = New-Object System.Windows.Forms.DataGridView
+$script:benchGrid.Name = 'BenchGrid'
+$script:benchGrid.AccessibleName = $GridName
+$script:benchGrid.ColumnCount = 2
+$script:benchGrid.Columns[0].Name = 'Key'
+$script:benchGrid.Columns[1].Name = 'Val'
+$script:benchGrid.ReadOnly = $true
+$script:benchGrid.AllowUserToAddRows = $false
+$script:benchGrid.RowHeadersVisible = $false
+$script:benchGrid.SetBounds(20, 180, 400, 150)
+foreach ($pair in @(@('alpha', '1'), @('beta', '2'), @('gamma', '3'))) {
+  [void]$script:benchGrid.Rows.Add($pair[0], $pair[1])
+}
 
 $script:benchInput.Add_TextChanged({ Write-Event 'text' $script:benchInput.Text })
 $script:benchButton1.Add_MouseDown({ Write-Event 'b1_down' '' })
@@ -78,11 +103,16 @@ $script:benchButton2.Add_Click({
   $script:benchStatus.AccessibleName = $StatusName + ' | alt'
   Write-Event 'button2' 'Alt clicked'
 })
+$script:benchClickLabel.Add_Click({
+  Write-Event 'labelclick' 'TAP HERE pressed'
+})
 $script:benchForm.Add_MouseDown({ Write-Event 'mouse' '' })
 
 $script:benchForm.Controls.Add($script:benchInput)
 $script:benchForm.Controls.Add($script:benchButton1)
 $script:benchForm.Controls.Add($script:benchButton2)
 $script:benchForm.Controls.Add($script:benchStatus)
+$script:benchForm.Controls.Add($script:benchClickLabel)
+$script:benchForm.Controls.Add($script:benchGrid)
 $script:benchForm.Add_Shown({ $script:benchForm.Activate() })
 [void]$script:benchForm.ShowDialog()

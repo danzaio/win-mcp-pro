@@ -23,6 +23,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes as wt
 import os
+import shutil
 import struct
 import sys
 import time
@@ -81,6 +82,9 @@ _MAX_PATH = 260
 _SW_HIDE, _SW_SHOWNORMAL, _SW_MINIMIZE, _SW_MAXIMIZE, _SW_RESTORE = 0, 1, 6, 3, 9
 _SWP_NOSIZE, _SWP_NOMOVE, _SWP_NOZORDER, _SWP_NOACTIVATE = 0x0001, 0x0002, 0x0004, 0x0010
 _HWND_TOP = 0
+_HWND_TOPMOST = -1
+_HWND_NOTOPMOST = -2
+_WM_CLOSE = 0x0010
 _MONITOR_DEFAULTTONEAREST = 2
 _STARTF_USESHOWWINDOW = 0x00000001
 _CREATE_UNICODE_ENVIRONMENT = 0x00000400
@@ -431,6 +435,19 @@ class WinSnapArgs(BaseModel):
 
 class HwndArgs(BaseModel):
     hwnd: int
+
+
+class WinTopmostArgs(BaseModel):
+    hwnd: int
+    on: bool = True
+
+
+class CodeGotoArgs(BaseModel):
+    path: str
+    line: int = Field(default=1, ge=1)
+    col: int = Field(default=1, ge=1)
+    new_window: bool = False
+    timeout_ms: int = Field(default=15000, ge=0)
 
 
 class PidArgs(BaseModel):
@@ -878,6 +895,68 @@ def h_win_snap(args: Any) -> dict:
     return {"ok": True, "hwnd": m.hwnd, "side": m.side, "rect": [x, y, w, h]}
 
 
+def h_win_close(args: Any) -> dict:
+    """Ask a window to close (WM_CLOSE: the app's own quit path, with its
+    save prompts), then confirm the hwnd is really gone."""
+    m = _args(HwndArgs, args)
+    _require_window(m.hwnd)
+    _user32.PostMessageW(m.hwnd, _WM_CLOSE, 0, 0)
+    deadline = time.monotonic() + 5.0
+    while _user32.IsWindow(m.hwnd):
+        if time.monotonic() >= deadline:
+            raise WinProcError("CLOSE_UNCONFIRMED",
+                               f"hwnd {m.hwnd} ignored WM_CLOSE for 5s")
+        time.sleep(0.1)
+    return {"ok": True, "hwnd": m.hwnd}
+
+
+def h_win_topmost(args: Any) -> dict:
+    """Pin (or unpin) a window above the rest without moving or resizing it."""
+    m = _args(WinTopmostArgs, args)
+    _require_window(m.hwnd)
+    after = _HWND_TOPMOST if m.on else _HWND_NOTOPMOST
+    _user32.SetWindowPos(m.hwnd, after, 0, 0, 0, 0, _SWP_NOMOVE | _SWP_NOSIZE)
+    return {"ok": True, "hwnd": m.hwnd,
+            "state": "topmost" if m.on else "normal"}
+
+
+def _find_code_cli() -> str | None:
+    """The VS Code CLI: PATH first, then its documented install location."""
+    found = shutil.which("code")
+    if found:
+        return found
+    local = os.environ.get("LOCALAPPDATA", "")
+    candidate = os.path.join(local, "Programs", "Microsoft VS Code",
+                             "bin", "code.cmd")
+    if local and os.path.isfile(candidate):
+        return candidate
+    return None
+
+
+def h_code_goto(args: Any) -> dict:
+    """Open a file at a line in VS Code through its documented CLI.
+
+    ``code --goto path:line:col`` is the editor's own remote control - no
+    pixels, no guessing. Fail-closed: the file must exist and the CLI must
+    be installed.
+    """
+    m = _args(CodeGotoArgs, args)
+    _need_windows()
+    target = os.path.abspath(m.path)
+    if not os.path.isfile(target):
+        raise WinProcError("FILE_NOT_FOUND", f"no file at {target!r}")
+    cli = _find_code_cli()
+    if cli is None:
+        raise WinProcError("CODE_NOT_FOUND",
+                           "VS Code CLI not found (code on PATH or its install dir)")
+    goto = f"{target}:{m.line}:{m.col}"
+    argv = [cli, "--goto", goto,
+            "--new-window" if m.new_window else "--reuse-window"]
+    created = _create_process(cli, _subprocess.list2cmdline(argv), None, _SW_SHOWNORMAL)
+    hwnd = _wait_for_window(created["pid"], m.timeout_ms)
+    return {"ok": True, "pid": created["pid"], "hwnd": hwnd, "path": target}
+
+
 def h_app_launch(args: Any) -> dict:
     m = _args(AppLaunchArgs, args)
     target = m.effective_target()
@@ -934,6 +1013,9 @@ TOOLS = [
     _tool("win_max", "Maximize a window.", HwndArgs, h_win_max),
     _tool("win_restore", "Restore a window.", HwndArgs, h_win_restore),
     _tool("win_snap", "Snap a window to a half/quarter of the work area.", WinSnapArgs, h_win_snap),
+    _tool("win_close", "Ask a window to close via WM_CLOSE and confirm it is gone.", HwndArgs, h_win_close),
+    _tool("win_topmost", "Pin/unpin a window above the rest (no move/resize).", WinTopmostArgs, h_win_topmost),
+    _tool("code_goto", "Open a file at line:col in VS Code via its CLI.", CodeGotoArgs, h_code_goto),
     _tool("get_hwnd_pid_path", "Owner pid + exe path for a window handle.", HwndArgs, h_get_hwnd_pid_path),
     _tool("proc_tree", "Process tree with command lines.", _NoArgs, h_proc_tree),
     _tool("is_elevated", "Whether a pid runs elevated.", PidArgs, h_is_elevated),

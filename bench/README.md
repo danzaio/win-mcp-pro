@@ -4,7 +4,7 @@
 python bench/run_matrix.py
 ```
 
-Spawns disposable fixtures and the MCP server over stdio, then runs 17
+Spawns disposable fixtures and the MCP server over stdio, then runs 24
 deterministic tasks. Every observable effect is written by the fixture
 process itself to a JSONL log; the runner asserts against those logs (the
 external oracle), so a green run means the effect happened in the
