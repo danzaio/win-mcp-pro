@@ -277,7 +277,7 @@ def handler_wait_text(s: str, id: str, timeout_ms: int = 5000) -> dict:
         element = _resolve(id)
         if element is None:
             return False
-        return wanted in (element_text := _provider.element_text(element)).casefold()
+        return wanted in _provider.element_text(element).casefold()
 
     return _poll(condition, timeout_ms)
 

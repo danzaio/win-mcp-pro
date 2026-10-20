@@ -21,7 +21,6 @@ import asyncio
 import json
 import types
 
-import pytest
 from mcp import ClientSession
 from mcp.shared.memory import create_client_server_memory_streams
 

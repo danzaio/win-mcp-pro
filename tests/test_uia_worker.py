@@ -25,7 +25,7 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from server import main as server_main, registry
-from server.supervisor import WORKER_TOOLS, UiaWorkerSupervisor, WorkerError
+from server.supervisor import UiaWorkerSupervisor, WorkerError
 
 ECHO_WORKER = textwrap.dedent("""
     import json, os, sys

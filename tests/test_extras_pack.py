@@ -1,8 +1,8 @@
 """Tests for the extras pack (goal b76eb4fb).
 
-``idle_time`` / ``type_text`` / ``key_hold`` / stepped drag (tools.compat),
+``type_text`` / ``key_hold`` / stepped drag (tools.compat),
 ``get_active_window`` / ``open_default`` (tools.winproc), ``win_shot`` /
-``color_at`` (tools.vision). Seams keep every
+stepped drag and ``win_shot`` (tools.vision). Seams keep every
 test headless: no screen, no SendInput, no launched apps.
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from tools import compat, query, vision, winproc
+from tools import compat, vision, winproc
 
 
 @pytest.fixture(autouse=True)
@@ -38,22 +38,6 @@ def _winproc_call(name, args):
     raise AssertionError(f"tool not registered: {name}")
 
 
-# --- idle_time --------------------------------------------------------------
-
-
-def test_idle_time_reports_ms(monkeypatch):
-    monkeypatch.setattr(compat, "_idle_ms", lambda: 4242)
-    result = _compat_handler("idle_time")({})
-    assert result == {"ok": True, "idle_ms": 4242}
-
-
-def test_idle_time_failure_is_typed(monkeypatch):
-    def boom():
-        raise OSError("GetLastInputInfo failed")
-
-    monkeypatch.setattr(compat, "_idle_ms", boom)
-    result = _compat_handler("idle_time")({})
-    assert result["ok"] is False and result["error"] == "IDLE_UNREADABLE", result
 
 
 def test_idle_ms_subtracts_tick_from_last_input(monkeypatch):
@@ -246,22 +230,5 @@ def test_win_shot_dead_window_is_typed(monkeypatch):
     assert result["ok"] is False and result["error"] == "BAD_WINDOW", result
 
 
-# --- color_at ---------------------------------------------------------------
 
 
-def test_color_at_reads_pixel(monkeypatch):
-    rgb = bytearray(10 * 10 * 3)
-    rgb[0:3] = (255, 0, 0)
-    monkeypatch.setattr(vision, "_capture",
-                        lambda monitor=0: (bytes(rgb), 10, 10, {"left": 0, "top": 0}))
-    result = vision.handler_color_at({"x": 0, "y": 0})
-    assert result == {"ok": True, "x": 0, "y": 0, "r": 255, "g": 0, "b": 0,
-                      "hex": "#ff0000"}, result
-
-
-def test_color_at_outside_display_is_typed(monkeypatch):
-    monkeypatch.setattr(vision, "_capture",
-                        lambda monitor=0: (b"\x00" * (10 * 10 * 3), 10, 10,
-                                           {"left": 0, "top": 0}))
-    result = vision.handler_color_at({"x": 50, "y": 50})
-    assert result["ok"] is False and result["error"] == "OUT_OF_RANGE", result

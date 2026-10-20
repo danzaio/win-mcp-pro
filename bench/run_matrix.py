@@ -921,7 +921,6 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                             "right": rect0["right"] - vx, "bottom": rect0["bottom"] - vy})
                         assert zoom["ok"], zoom
                         frame = zoom["frame"]
-                        w = rect0["right"] - rect0["left"]
                         from_x = (rect0["left"] + rect0["right"]) / 2 - frame["left"]
                         from_y = (rect0["top"] + 15) - frame["top"]
                         to_x, to_y = from_x + 120, from_y

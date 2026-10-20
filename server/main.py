@@ -6,7 +6,7 @@ goes to stderr (see ``server.audit``).
 
 Run with::
 
-    python -m server.main [--tools find,invoke] [--exclude-tools kill_proc]
+    python -m server.main [--tools find,invoke] [--exclude-tools clipboard_set]
                           [--input-unrestricted]
 """
 

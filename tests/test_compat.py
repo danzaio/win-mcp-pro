@@ -80,7 +80,6 @@ def test_registry_shape():
         "click",
         "double_click",
         "cursor_position",
-        "idle_time",
         "type_text",
         "key_hold",
         "move",

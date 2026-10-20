@@ -27,7 +27,6 @@ import re
 import time
 from collections import deque
 from dataclasses import dataclass
-from itertools import islice
 from typing import Any, Callable, Optional
 
 from pydantic import BaseModel, ConfigDict, Field

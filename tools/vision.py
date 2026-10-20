@@ -36,7 +36,7 @@ import uuid
 from collections import OrderedDict
 from typing import Any, Callable, Mapping
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field
 
 _BACKEND_MISSING = "vision backend unavailable (mss/pillow not installed)"
 
@@ -346,108 +346,6 @@ def handler_win_shot(args: Any) -> dict:
             "region": [left, top, right, bottom], "frame": frame, **saved}
 
 
-class ColorAtArgs(BaseModel):
-    x: int = Field(description="Desktop pixel column.")
-    y: int = Field(description="Desktop pixel row.")
-    monitor: int = Field(default=0, ge=0, description="Zero-based display index.")
-
-
-def handler_color_at(args: Any) -> dict:
-    """Read one desktop pixel as RGB + hex. Read-only canvas/testing probe."""
-    m = ColorAtArgs(**dict(args or {}))
-    try:
-        rgb, width, height, origin = _capture(m.monitor)
-    except ImportError:
-        return {"ok": False, "error": "UNAVAILABLE", "reason": _BACKEND_MISSING}
-    except Exception as exc:  # noqa: BLE001 - capture failure is data
-        return {"ok": False, "error": "CAPTURE_FAILED", "reason": str(exc)[:200]}
-    x, y = m.x - origin["left"], m.y - origin["top"]
-    if not (0 <= x < width and 0 <= y < height):
-        return {"ok": False, "error": "OUT_OF_RANGE",
-                "reason": f"({m.x}, {m.y}) is outside the {width}x{height} display"}
-    offset = (y * width + x) * 3
-    r, g, b = rgb[offset], rgb[offset + 1], rgb[offset + 2]
-    return {"ok": True, "x": m.x, "y": m.y, "r": r, "g": g, "b": b,
-            "hex": f"#{r:02x}{g:02x}{b:02x}"}
-
-
-_IMG_FORMATS = {
-    "png": "PNG", "jpeg": "JPEG", "jpg": "JPEG",
-    "pdf": "PDF", "bmp": "BMP", "gif": "GIF",
-}
-
-
-class ImgConvertArgs(BaseModel):
-    path: str = Field(description="source image file (must exist)")
-    format: str | None = Field(
-        default=None,
-        description="target format: png, jpeg, pdf, bmp or gif "
-                    "(default: from the output extension, else png)",
-    )
-    output: str | None = Field(
-        default=None,
-        description="destination file; default: alongside the source with the new extension",
-    )
-    max_width: int | None = Field(
-        default=None, gt=0,
-        description="downscale so the width fits (aspect kept); omit to keep pixels",
-    )
-
-    @field_validator("format", mode="before")
-    @classmethod
-    def _known_format(cls, value: Any) -> Any:
-        if value is None:
-            return None
-        if not isinstance(value, str) or value.strip().lower() not in _IMG_FORMATS:
-            raise ValueError(f"format must be one of {', '.join(sorted(_IMG_FORMATS))}")
-        return value.strip().lower()
-
-
-def handler_img_convert(args: Any) -> dict:
-    """Re-encode (and optionally downscale) an image file.
-
-    The receipt-to-PDF shaped task with no screen involved: read pixels from
-    disk, write them back in another format. Never overwrites its own input.
-    """
-    import os.path
-
-    try:
-        from PIL import Image
-    except ImportError:
-        return {"ok": False, "error": "UNAVAILABLE", "reason": _BACKEND_MISSING}
-    m = ImgConvertArgs(**dict(args or {}))
-    if not os.path.isfile(m.path):
-        return {"ok": False, "error": "FILE_NOT_FOUND",
-                "reason": f"no file at {m.path!r}"}
-    fmt = m.format
-    if fmt is None and m.output is not None:
-        fmt = _IMG_FORMATS.get(os.path.splitext(m.output)[1].lstrip(".").lower())
-    fmt = fmt or "png"
-    if fmt not in _IMG_FORMATS:
-        return {"ok": False, "error": "BAD_FORMAT",
-                "reason": f"cannot infer a format from {m.output!r}"}
-    ext = ".jpg" if fmt in ("jpeg", "jpg") else f".{fmt}"
-    output = m.output or f"{os.path.splitext(m.path)[0]}{ext}"
-    if os.path.abspath(output) == os.path.abspath(m.path):
-        return {"ok": False, "error": "INPUT_PROTECTED",
-                "reason": "output would overwrite the input file"}
-    try:
-        image = Image.open(m.path)
-        image.load()
-        if fmt in ("jpeg", "jpg") or fmt == "pdf":
-            image = image.convert("RGB")
-        if m.max_width is not None and image.width > m.max_width:
-            image = image.resize(
-                (m.max_width, max(1, round(image.height * m.max_width / image.width))),
-                Image.LANCZOS)
-        image.save(output, _IMG_FORMATS[fmt])
-    except Exception as exc:  # noqa: BLE001 - corrupt input is data
-        return {"ok": False, "error": "CONVERT_FAILED", "reason": str(exc)[:200]}
-    return {"ok": True, "output": output, "format": fmt,
-            "width": image.width, "height": image.height,
-            "bytes": os.path.getsize(output)}
-
-
 TOOLS = [
     _tool("screenshot",
           "Capture a display to a PNG file (vision fallback; tree-first stays "
@@ -465,18 +363,9 @@ TOOLS = [
           "List the attached displays: name, desktop rect, primary flag and "
           "DPI (best-effort). Read-only geometry for grounding follow-ups.",
           DisplaysArgs, handler_displays),
-    _tool("img_convert",
-          "Re-encode an image file (png/jpeg/pdf/bmp/gif) with optional "
-          "downscale. File-to-file pixels with no screen involved; never "
-          "overwrites its input.",
-          ImgConvertArgs, handler_img_convert),
     _tool("win_shot",
           "Capture one window (by hwnd) to a PNG file, with the same inline "
           "image delivery and clickable frame id as screenshot. Shows what "
           "is really on screen: overlapping windows paint over it.",
           WinShotArgs, handler_win_shot),
-    _tool("color_at",
-          "Read one desktop pixel as RGB + hex. Read-only probe for canvas "
-          "rendering and theme checks.",
-          ColorAtArgs, handler_color_at),
 ]

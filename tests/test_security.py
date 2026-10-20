@@ -30,13 +30,13 @@ class TestParseToolFilter:
         assert allow == {"invoke", "snapshot"}
 
     def test_exclude_tools_comma_list(self):
-        allow, block = security.parse_tool_filter(["--exclude-tools", "kill_proc,powershell"])
-        assert block == {"kill_proc", "powershell"}
+        allow, block = security.parse_tool_filter(["--exclude-tools", "invoke,click"])
+        assert block == {"invoke", "click"}
         assert allow is None
 
     def test_exclude_tools_equals_form(self):
-        allow, block = security.parse_tool_filter(["--exclude-tools=kill_proc"])
-        assert block == {"kill_proc"}
+        allow, block = security.parse_tool_filter(["--exclude-tools=invoke"])
+        assert block == {"invoke"}
 
     def test_both_flags_together(self):
         allow, block = security.parse_tool_filter(
@@ -78,16 +78,16 @@ class TestParseToolFilter:
 # ---------------------------------------------------------------- enforce_filter
 class TestEnforceFilter:
     def test_no_filters_allows_everything(self):
-        assert security.enforce_filter("kill_proc", None, None) is True
+        assert security.enforce_filter("invoke", None, None) is True
 
     def test_allowlist_membership(self):
         allow = {"invoke", "find"}
         assert security.enforce_filter("find", allow, None) is True
-        assert security.enforce_filter("kill_proc", allow, None) is False
+        assert security.enforce_filter("click", allow, None) is False
 
     def test_blocklist_rejects(self):
-        block = {"kill_proc", "powershell"}
-        assert security.enforce_filter("kill_proc", None, block) is False
+        block = {"invoke", "click"}
+        assert security.enforce_filter("invoke", None, block) is False
         assert security.enforce_filter("find", None, block) is True
 
     def test_blocklist_wins_over_allowlist(self):

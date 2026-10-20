@@ -23,11 +23,9 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes as wt
 import os
-import shutil
-import struct
 import sys
 import time
-from typing import Any, Callable, Literal, Mapping, TypeVar
+from typing import Any, Literal, Mapping
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -82,38 +80,14 @@ _MAX_PATH = 260
 _SW_HIDE, _SW_SHOWNORMAL, _SW_MINIMIZE, _SW_MAXIMIZE, _SW_RESTORE = 0, 1, 6, 3, 9
 _SWP_NOSIZE, _SWP_NOMOVE, _SWP_NOZORDER, _SWP_NOACTIVATE = 0x0001, 0x0002, 0x0004, 0x0010
 _HWND_TOP = 0
-_HWND_TOPMOST = -1
-_HWND_NOTOPMOST = -2
 _WM_CLOSE = 0x0010
-_MONITOR_DEFAULTTONEAREST = 2
 _STARTF_USESHOWWINDOW = 0x00000001
 _CREATE_UNICODE_ENVIRONMENT = 0x00000400
-_DWMWA_CLOAKED = 14
 
 # Access rights.
-_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-_PROCESS_VM_READ = 0x0010
-_PROCESS_TERMINATE = 0x0001
-_TOKEN_QUERY = 0x0008
-_TOKEN_ELEVATION_CLASS = 18
-_TOKEN_ELEVATION = 20
-_TOKEN_INTEGRITY_LEVEL = 25
 _TH32CS_SNAPPROCESS = 0x00000002
 
 #: Pid 4 is the System process and 0 is the idle process: never terminate.
-_PROTECTED_PIDS = (0, 4)
-
-_SNAP_SIDES = (
-    "left",
-    "right",
-    "top",
-    "bottom",
-    "topleft",
-    "topright",
-    "bottomleft",
-    "bottomright",
-)
-_SHOW_COMMANDS = {"normal": _SW_SHOWNORMAL, "max": _SW_MAXIMIZE, "min": _SW_MINIMIZE}
 
 
 class _RECT(ctypes.Structure):
@@ -178,24 +152,6 @@ class _PROCESS_INFORMATION(ctypes.Structure):
         ("hThread", wt.HANDLE),
         ("dwProcessId", wt.DWORD),
         ("dwThreadId", wt.DWORD),
-    ]
-
-
-class _UNICODE_STRING(ctypes.Structure):
-    _fields_ = [
-        ("Length", wt.WORD),
-        ("MaximumLength", wt.WORD),
-        ("Buffer", ctypes.c_void_p),
-    ]
-
-
-class _PROCESS_BASIC_INFORMATION(ctypes.Structure):
-    _fields_ = [
-        ("Reserved1", ctypes.c_void_p),
-        ("PebBaseAddress", ctypes.c_void_p),
-        ("Reserved2", ctypes.c_void_p * 2),
-        ("UniqueProcessId", ctypes.c_void_p),
-        ("Reserved3", ctypes.c_void_p),
     ]
 
 
@@ -318,26 +274,6 @@ def _need_windows() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _rid_to_integrity(rid: int) -> str:
-    """Map a mandatory-label RID to a level name (winnt.h buckets).
-
-    SECURITY_MANDATORY_UNTRUSTED_RID 0x0000, LOW 0x1000, MEDIUM 0x2000,
-    HIGH 0x3000, SYSTEM 0x4000, PROTECTED_PROCESS 0x5000. The names match
-    server.security.integrity_label so both slices speak one vocabulary.
-    """
-    if rid >= 0x5000:
-        return "protected-process"
-    if rid >= 0x4000:
-        return "system"
-    if rid >= 0x3000:
-        return "high"
-    if rid >= 0x2000:
-        return "medium"
-    if rid >= 0x1000:
-        return "low"
-    return "untrusted"
-
-
 def normalize_exe(exe: Any) -> str:
     """Lowercase basename without extension; empty string for junk input."""
     if not isinstance(exe, str) or not exe:
@@ -437,26 +373,9 @@ class HwndArgs(BaseModel):
     hwnd: int
 
 
-class WinTopmostArgs(BaseModel):
-    hwnd: int
-    on: bool = True
-
-
-class CodeGotoArgs(BaseModel):
-    path: str
-    line: int = Field(default=1, ge=1)
-    col: int = Field(default=1, ge=1)
-    new_window: bool = False
-    timeout_ms: int = Field(default=15000, ge=0)
-
-
 class OpenDefaultArgs(BaseModel):
     target: str = Field(description="file path (must exist) or http(s) URL")
     cwd: str | None = None
-
-
-class PidArgs(BaseModel):
-    pid: int
 
 
 class AppLaunchArgs(BaseModel):
@@ -477,12 +396,6 @@ class AppLaunchArgs(BaseModel):
         return self.path or self.app or self.name or ""
 
 
-class KillArgs(BaseModel):
-    pid: int | None = None
-    name: str | None = None
-    confirm: bool = False
-
-
 class ExcludeProcArgs(BaseModel):
     names: list[str] | None = None
     mode: str = "add"
@@ -501,16 +414,6 @@ _shell32 = ctypes.WinDLL("shell32", use_last_error=True) if _IS_WINDOWS else Non
 
 # Keep EnumWindows callbacks alive: a GC'd WINFUNCTYPE crashes the walk.
 _enum_callback_refs: list = []
-
-
-def _query_limited_vm_read(pid: int):
-    _need_windows()
-    handle = _kernel32.OpenProcess(
-        _PROCESS_QUERY_LIMITED_INFORMATION | _PROCESS_VM_READ, False, pid
-    )
-    if not handle:
-        return None
-    return handle
 
 
 def _process_snapshot() -> list[dict]:
@@ -536,120 +439,6 @@ def _process_snapshot() -> list[dict]:
         return out
     finally:
         _kernel32.CloseHandle(snap)
-
-
-def _proc_cmdline(pid: int) -> tuple[str | None, bool, str]:
-    """Read a process command line through its PEB (x64 offsets).
-
-    Returns (cmdline|None, ok, reason). Cross-integrity reads fail closed
-    with access_denied; Wow64 targets report unverified offsets.
-    """
-    _need_windows()
-    handle = _query_limited_vm_read(pid)
-    if not handle:
-        return None, False, "access_denied"
-    try:
-        wow64 = wt.BOOL()
-        try:
-            if _kernel32.IsWow64Process(handle, ctypes.byref(wow64)) and wow64.value:
-                return None, False, "wow64_offsets_unverified"
-        except Exception:  # noqa: BLE001 - missing export, keep going native
-            pass
-        pbi = _PROCESS_BASIC_INFORMATION()
-        status = _ntdll.NtQueryInformationProcess(
-            handle, 0, ctypes.byref(pbi), ctypes.sizeof(pbi), None
-        )
-        if status != 0:
-            return None, False, "peb-query-failed"
-        word = ctypes.sizeof(ctypes.c_void_p)
-        params_addr = _read_ptr(handle, pbi.PebBaseAddress + 4 * word)
-        if not params_addr:
-            return None, False, "unreadable-peb"
-        # RTL_USER_PROCESS_PARAMETERS +0x70 = CommandLine UNICODE_STRING
-        # (u16 length, u16 maxlen, ptr, 4 bytes pad on x64).
-        raw = _read_bytes(handle, params_addr + 0x70, 16)
-        if not raw:
-            return None, False, "unreadable-params"
-        length = struct.unpack("<H", raw[:2])[0]
-        buf_ptr = struct.unpack("<Q" if word == 8 else "<I", raw[8 if word == 8 else 4:][:word])[0]
-        if not length or not buf_ptr:
-            return None, False, "empty-command-line"
-        data = _read_bytes(handle, buf_ptr, length)
-        if not data:
-            return None, False, "unreadable-cmdline"
-        return data.decode("utf-16-le", "replace"), True, ""
-    finally:
-        _kernel32.CloseHandle(handle)
-
-
-def _read_bytes(handle, address: int, size: int) -> bytes | None:
-    if not address or size <= 0 or size > 1 << 20:
-        return None
-    buf = ctypes.create_string_buffer(size)
-    got = ctypes.c_size_t(0)
-    ok = _kernel32.ReadProcessMemory(
-        handle, ctypes.c_void_p(address), buf, size, ctypes.byref(got)
-    )
-    if not ok or not got.value:
-        return None
-    return bytes(buf.raw[: got.value])
-
-
-def _read_ptr(handle, address: int) -> int:
-    word = ctypes.sizeof(ctypes.c_void_p)
-    raw = _read_bytes(handle, address, word)
-    if not raw:
-        return 0
-    return struct.unpack("<Q" if word == 8 else "<I", raw)[0]
-
-
-def _token_rid(pid: int) -> int:
-    """Mandatory-label RID for a pid (real winnt.h buckets)."""
-    _need_windows()
-    handle = _kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-    if not handle:
-        raise WinProcError("NOT_FOUND", f"cannot open pid {pid}: {_win32_message()}")
-    try:
-        token = wt.HANDLE()
-        if not _advapi32.OpenProcessToken(handle, _TOKEN_QUERY, ctypes.byref(token)):
-            raise WinProcError("ACCESS_DENIED", f"cannot open token of pid {pid}")
-        try:
-            size = wt.DWORD(0)
-            _advapi32.GetTokenInformation(token, _TOKEN_INTEGRITY_LEVEL, None, 0, ctypes.byref(size))
-            buf = ctypes.create_string_buffer(size.value or 64)
-            if not _advapi32.GetTokenInformation(token, _TOKEN_INTEGRITY_LEVEL, buf, size, ctypes.byref(size)):
-                raise WinProcError("ACCESS_DENIED", f"cannot read label of pid {pid}")
-            label_ptr = ctypes.cast(buf, ctypes.POINTER(ctypes.c_void_p))
-            sid = label_ptr[0]  # TOKEN_MANDATORY_LABEL.Label.Sid is at offset 0
-            rid = struct.unpack("<I", ctypes.string_at(sid + 8, 4))[0]
-            return int(rid)
-        finally:
-            _kernel32.CloseHandle(token)
-    finally:
-        _kernel32.CloseHandle(handle)
-
-
-def _is_elevated_pid(pid: int) -> bool:
-    _need_windows()
-    handle = _kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-    if not handle:
-        raise WinProcError("NOT_FOUND", f"cannot open pid {pid}: {_win32_message()}")
-    try:
-        token = wt.HANDLE()
-        if not _advapi32.OpenProcessToken(handle, _TOKEN_QUERY, ctypes.byref(token)):
-            raise WinProcError("ACCESS_DENIED", f"cannot open token of pid {pid}")
-        try:
-            elevated = wt.DWORD(0)
-            size = wt.DWORD(ctypes.sizeof(elevated))
-            if not _advapi32.GetTokenInformation(
-                token, _TOKEN_ELEVATION, ctypes.byref(elevated), size, ctypes.byref(size)
-            ):
-                raise WinProcError("ACCESS_DENIED", f"cannot read elevation of pid {pid}")
-            return bool(elevated.value)
-        finally:
-            _kernel32.CloseHandle(token)
-    finally:
-        _kernel32.CloseHandle(handle)
 
 
 def _enum_windows_real() -> list[tuple[int, str, int, bool]]:
@@ -685,17 +474,6 @@ def _enum_windows_real() -> list[tuple[int, str, int, bool]]:
     except Exception:  # noqa: BLE001
         pass
     return found
-
-
-def _terminate_pid(pid: int, code: int = 1) -> bool:
-    _need_windows()
-    handle = _kernel32.OpenProcess(_PROCESS_TERMINATE, False, pid)
-    if not handle:
-        return False
-    try:
-        return bool(_kernel32.TerminateProcess(handle, code))
-    finally:
-        _kernel32.CloseHandle(handle)
 
 
 def _resolve_app_path(target: str, cwd: str | None = None) -> str | None:
@@ -776,72 +554,6 @@ def h_list_windows(args: Any) -> dict:
     return {"count": len(wins), "windows": wins}
 
 
-def h_get_hwnd_pid_path(args: Any) -> dict:
-    m = _args(HwndArgs, args)
-    _need_windows()
-    if not _user32.IsWindow(m.hwnd):
-        raise WinProcError("NOT_FOUND", f"hwnd {m.hwnd} is not a live window")
-    pid = wt.DWORD(0)
-    _user32.GetWindowThreadProcessId(m.hwnd, ctypes.byref(pid))
-    pid = int(pid.value)
-    if not pid:
-        raise WinProcError("NOT_FOUND", f"hwnd {m.hwnd} has no owning process")
-    handle = _kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-    exe, path = "", None
-    if handle:
-        try:
-            size = wt.DWORD(32767)
-            buf = ctypes.create_unicode_buffer(32767)
-            if _kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
-                path = buf.value or None
-                exe = (path or "").replace("/", "\\").rsplit("\\", 1)[-1]
-        finally:
-            _kernel32.CloseHandle(handle)
-    if not exe:
-        raise WinProcError("NOT_FOUND", f"cannot read image of pid {pid}")
-    return {"hwnd": m.hwnd, "pid": pid, "exe": exe, "path": path}
-
-
-def h_proc_tree(args: Any) -> dict:
-    _args(_NoArgs, args)
-    procs = _process_snapshot()
-    by_pid = {p["pid"]: dict(p, children=[]) for p in procs}
-    roots = []
-    for p in procs:
-        parent = by_pid.get(p["ppid"])
-        if parent is None or p["ppid"] in (0, p["pid"]):
-            roots.append(p["pid"])
-        else:
-            parent["children"].append(p["pid"])
-    nodes = []
-    for pid, node in by_pid.items():
-        ppid, reparented, ppid_original = node["ppid"], False, None
-        if ppid not in by_pid and ppid not in (0, pid):
-            # Live-system truth: session processes (csrss/wininit/winlogon)
-            # outlive their parents, leaving dangling ppids. Reattach them at
-            # the root so the tree invariant holds, keeping the truth around.
-            ppid_original, ppid, reparented = ppid, 0, True
-        cmdline, ok, _reason = _proc_cmdline(pid)
-        nodes.append(
-            {"pid": pid, "ppid": ppid, "exe": node["exe"],
-             "children": node["children"], "cmdline": cmdline or "",
-             "cmdline_ok": ok, "ppid_original": ppid_original,
-             "reparented": reparented}
-        )
-    return {"count": len(nodes), "processes": nodes, "roots": roots}
-
-
-def h_is_elevated(args: Any) -> dict:
-    m = _args(PidArgs, args)
-    return {"pid": m.pid, "elevated": _is_elevated_pid(m.pid)}
-
-
-def h_integrity_level(args: Any) -> dict:
-    m = _args(PidArgs, args)
-    rid = _token_rid(m.pid)
-    return {"pid": m.pid, "rid": rid, "level": _rid_to_integrity(rid)}
-
-
 def h_exclude_proc(args: Any) -> dict:
     m = _args(ExcludeProcArgs, args)
     current = exclude_proc(m.names, m.mode)
@@ -915,53 +627,6 @@ def h_win_close(args: Any) -> dict:
     return {"ok": True, "hwnd": m.hwnd}
 
 
-def h_win_topmost(args: Any) -> dict:
-    """Pin (or unpin) a window above the rest without moving or resizing it."""
-    m = _args(WinTopmostArgs, args)
-    _require_window(m.hwnd)
-    after = _HWND_TOPMOST if m.on else _HWND_NOTOPMOST
-    _user32.SetWindowPos(m.hwnd, after, 0, 0, 0, 0, _SWP_NOMOVE | _SWP_NOSIZE)
-    return {"ok": True, "hwnd": m.hwnd,
-            "state": "topmost" if m.on else "normal"}
-
-
-def _find_code_cli() -> str | None:
-    """The VS Code CLI: PATH first, then its documented install location."""
-    found = shutil.which("code")
-    if found:
-        return found
-    local = os.environ.get("LOCALAPPDATA", "")
-    candidate = os.path.join(local, "Programs", "Microsoft VS Code",
-                             "bin", "code.cmd")
-    if local and os.path.isfile(candidate):
-        return candidate
-    return None
-
-
-def h_code_goto(args: Any) -> dict:
-    """Open a file at a line in VS Code through its documented CLI.
-
-    ``code --goto path:line:col`` is the editor's own remote control - no
-    pixels, no guessing. Fail-closed: the file must exist and the CLI must
-    be installed.
-    """
-    m = _args(CodeGotoArgs, args)
-    _need_windows()
-    target = os.path.abspath(m.path)
-    if not os.path.isfile(target):
-        raise WinProcError("FILE_NOT_FOUND", f"no file at {target!r}")
-    cli = _find_code_cli()
-    if cli is None:
-        raise WinProcError("CODE_NOT_FOUND",
-                           "VS Code CLI not found (code on PATH or its install dir)")
-    goto = f"{target}:{m.line}:{m.col}"
-    argv = [cli, "--goto", goto,
-            "--new-window" if m.new_window else "--reuse-window"]
-    created = _create_process(cli, _subprocess.list2cmdline(argv), None, _SW_SHOWNORMAL)
-    hwnd = _wait_for_window(created["pid"], m.timeout_ms)
-    return {"ok": True, "pid": created["pid"], "hwnd": hwnd, "path": target}
-
-
 def _foreground_hwnd() -> int | None:
     """The foreground window handle, or None when there is none."""
     _need_windows()
@@ -1021,33 +686,6 @@ def h_app_launch(args: Any) -> dict:
     return {"ok": True, "pid": None, "hwnd": None, "target": target}
 
 
-def h_kill_proc(args: Any) -> dict:
-    m = _args(KillArgs, args)
-    if not m.confirm:
-        raise WinProcError("CONFIRM_REQUIRED", "kill_proc needs confirm=True")
-    me = os.getpid()
-    if m.pid is not None:
-        if m.pid == me:
-            raise WinProcError("SELF_KILL", "refusing to kill the agent process itself")
-        if m.pid in _PROTECTED_PIDS:
-            raise WinProcError("PROTECTED_PID", f"refusing to kill protected pid {m.pid}")
-        ok = _terminate_pid(m.pid)
-        return {"ok": bool(ok), "killed": [{"pid": m.pid}] if ok else []}
-    if m.name:
-        want = normalize_exe(m.name)
-        killed, skipped = [], []
-        for proc in _process_snapshot():
-            if normalize_exe(proc.get("exe")) != want:
-                continue
-            if proc["pid"] in (me, *_PROTECTED_PIDS):
-                skipped.append(proc["pid"])
-                continue
-            if _terminate_pid(proc["pid"]):
-                killed.append({"pid": proc["pid"]})
-        return {"ok": True, "killed": killed, "skipped_protected": skipped}
-    raise WinProcError("CONFIRM_REQUIRED", "kill_proc needs confirm=True")
-
-
 def _tool(name: str, description: str, schema, handler) -> dict:
     return {"name": name, "description": description, "schema": schema, "handler": handler}
 
@@ -1062,14 +700,7 @@ TOOLS = [
     _tool("win_restore", "Restore a window.", HwndArgs, h_win_restore),
     _tool("win_snap", "Snap a window to a half/quarter of the work area.", WinSnapArgs, h_win_snap),
     _tool("win_close", "Ask a window to close via WM_CLOSE and confirm it is gone.", HwndArgs, h_win_close),
-    _tool("win_topmost", "Pin/unpin a window above the rest (no move/resize).", WinTopmostArgs, h_win_topmost),
-    _tool("code_goto", "Open a file at line:col in VS Code via its CLI.", CodeGotoArgs, h_code_goto),
     _tool("get_active_window", "Foreground window: hwnd, title, pid.", _NoArgs, h_get_active_window),
     _tool("open_default", "Open a file/URL with its default handler.", OpenDefaultArgs, h_open_default),
-    _tool("get_hwnd_pid_path", "Owner pid + exe path for a window handle.", HwndArgs, h_get_hwnd_pid_path),
-    _tool("proc_tree", "Process tree with command lines.", _NoArgs, h_proc_tree),
-    _tool("is_elevated", "Whether a pid runs elevated.", PidArgs, h_is_elevated),
-    _tool("integrity_level", "Mandatory-label level of a pid.", PidArgs, h_integrity_level),
     _tool("exclude_proc", "Add/replace/clear the traversal exclusion set.", ExcludeProcArgs, h_exclude_proc),
-    _tool("kill_proc", "Terminate by pid/name; confirm-first, never self/0/4.", KillArgs, h_kill_proc),
 ]

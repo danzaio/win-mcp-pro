@@ -186,10 +186,6 @@ class CursorPositionArgs(BaseModel):
     pass
 
 
-class IdleTimeArgs(BaseModel):
-    pass
-
-
 #: Hard cap: typing is keystrokes, not bulk transfer (paste_text covers that).
 TYPE_TEXT_MAX = 512
 
@@ -971,13 +967,6 @@ def _idle_ms() -> int:
     return int((_tick_ms() - info.dwTime) & 0xFFFFFFFF)
 
 
-def _tool_idle_time(args: IdleTimeArgs) -> dict:
-    try:
-        return {"ok": True, "idle_ms": _idle_ms()}
-    except Exception as exc:  # noqa: BLE001 - unreadable counter is data
-        return _refuse("IDLE_UNREADABLE", str(exc)[:200])
-
-
 def _tool_shortcut(args: ShortcutArgs) -> dict:
     refusal, activated = _bind_window(args.target, args.activate)
     if refusal:
@@ -1100,16 +1089,11 @@ _tool_key_hold.__doc__ = (
     "Hold one key down for N milliseconds, then release. Same "
     "target/activate contract as shortcut."
 )
-_tool_idle_time.__doc__ = (
-    "Milliseconds since the last system-wide keyboard/mouse input. "
-    "Read-only observation for deciding whether the user is at the machine."
-)
 
 TOOLS: list[dict] = [
     _bind("click", ClickArgs, _tool_click),
     _bind("double_click", DoubleClickArgs, _tool_double_click),
     _bind("cursor_position", CursorPositionArgs, _tool_cursor_position),
-    _bind("idle_time", IdleTimeArgs, _tool_idle_time),
     _bind("type_text", TypeTextArgs, _tool_type_text),
     _bind("key_hold", KeyHoldArgs, _tool_key_hold),
     _bind("move", MoveArgs, _tool_move),

@@ -1,13 +1,10 @@
 """Task 9 - window/process RE tools (tools/winproc.py).
 
 Contract tests for the winproc module. Real Win32 calls are exercised for the
-cheap, side-effect-free probes (list_windows, proc_tree, is_elevated,
-integrity_level); anything destructive is only ever tested against monkeypatched
-seams, never executed for real.
+cheap, side-effect-free probes (list_windows); anything destructive is only ever tested against monkeypatched seams, never executed for real.
 """
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -37,12 +34,7 @@ REQUIRED_TOOLS = [
     "win_max",
     "win_restore",
     "win_snap",
-    "get_hwnd_pid_path",
-    "proc_tree",
-    "is_elevated",
-    "integrity_level",
     "exclude_proc",
-    "kill_proc",
 ]
 
 
@@ -95,7 +87,7 @@ def test_no_tool_touches_stdout(capsys):
 
 
 # --------------------------------------------------------------------------
-# list_windows / get_hwnd_pid_path
+# list_windows
 # --------------------------------------------------------------------------
 
 def test_list_windows_non_empty():
@@ -109,86 +101,6 @@ def test_list_windows_non_empty():
         assert isinstance(w["pid"], int)
         assert isinstance(w["visible"], bool)
         assert w["title"], "visible windows should carry a title"
-
-
-def test_get_hwnd_pid_path_agrees_with_list_windows():
-    res = call("list_windows")
-    if not res["windows"]:
-        pytest.skip("no visible top-level window on this desktop")
-    first = res["windows"][0]
-    detail = call("get_hwnd_pid_path", hwnd=first["hwnd"])
-    assert detail["hwnd"] == first["hwnd"]
-    assert detail["pid"] == first["pid"]
-    assert detail["exe"]
-    assert detail["path"] is None or isinstance(detail["path"], str)
-
-
-def test_get_hwnd_pid_path_rejects_bogus_hwnd():
-    with pytest.raises(wp.WinProcError) as ei:
-        call("get_hwnd_pid_path", hwnd=1)
-    assert ei.value.code == "NOT_FOUND"
-
-
-# --------------------------------------------------------------------------
-# proc_tree
-# --------------------------------------------------------------------------
-
-def test_proc_tree_reports_self_with_cmdline():
-    res = call("proc_tree")
-    assert res["count"] == len(res["processes"])
-    assert res["count"] > 5, "a live machine has more processes than that"
-    nodes = res["processes"]
-    assert res["roots"], "at least one root process expected"
-    for proc in nodes:
-        assert {"pid", "ppid", "exe", "children"} <= set(proc)
-        assert isinstance(proc["children"], list)
-    me = [p for p in nodes if p["pid"] == os.getpid()]
-    assert me, "current process must show up in the tree"
-    self_node = me[0]
-    assert self_node["exe"].lower().endswith("python.exe")
-    assert self_node["cmdline"], "own command line is always readable"
-    assert "pytest" in self_node["cmdline"].lower()
-    assert self_node["cmdline_ok"] is True
-
-
-def test_proc_tree_parents_exist():
-    res = call("proc_tree")
-    pids = {p["pid"] for p in res["processes"]}
-    for proc in res["processes"]:
-        if proc["ppid"] not in (0, proc["pid"]):
-            assert proc["ppid"] in pids, f"orphan ppid {proc['ppid']}"
-
-
-# --------------------------------------------------------------------------
-# elevation / integrity
-# --------------------------------------------------------------------------
-
-def test_is_elevated_self_returns_bool():
-    res = call("is_elevated", pid=os.getpid())
-    assert res["pid"] == os.getpid()
-    assert isinstance(res["elevated"], bool)
-
-
-def test_integrity_level_self_is_known():
-    res = call("integrity_level", pid=os.getpid())
-    assert res["rid"] > 0
-    assert res["level"] in {"untrusted", "low", "medium", "high", "system", "protected-process"}
-
-
-def test_integrity_level_maps_rids():
-    # Real winnt.h buckets (the original values here were shifted +0x1000).
-    assert wp._rid_to_integrity(0x1000) == "low"
-    assert wp._rid_to_integrity(0x2000) == "medium"
-    assert wp._rid_to_integrity(0x3000) == "high"
-    assert wp._rid_to_integrity(0x4000) == "system"
-    assert wp._rid_to_integrity(0x5000) == "protected-process"
-    assert wp._rid_to_integrity(0x0000) == "untrusted"
-
-
-def test_is_elevated_rejects_unknown_pid():
-    with pytest.raises(wp.WinProcError) as ei:
-        call("is_elevated", pid=0xFFFFFFF)
-    assert ei.value.code in {"NOT_FOUND", "ACCESS_DENIED"}
 
 
 # --------------------------------------------------------------------------
@@ -315,56 +227,4 @@ def test_app_launch_reports_failed_resolution(monkeypatch):
 # kill_proc: confirm-first, protected targets, name matching
 # --------------------------------------------------------------------------
 
-@pytest.mark.parametrize("kwargs", [{"pid": 999999}, {"name": "no-such-thing.exe"}, {}])
-def test_kill_proc_requires_confirm(kwargs):
-    with pytest.raises(wp.WinProcError) as ei:
-        call("kill_proc", **kwargs)
-    assert ei.value.code == "CONFIRM_REQUIRED"
 
-
-def test_kill_proc_refuses_self_even_when_confirmed():
-    with pytest.raises(wp.WinProcError) as ei:
-        call("kill_proc", pid=os.getpid(), confirm=True)
-    assert ei.value.code == "SELF_KILL"
-
-
-def test_kill_proc_refuses_system_pids():
-    for pid in (0, 4):
-        with pytest.raises(wp.WinProcError) as ei:
-            call("kill_proc", pid=pid, confirm=True)
-        assert ei.value.code == "PROTECTED_PID"
-
-
-def test_kill_proc_by_name_only_touches_matches(monkeypatch):
-    monkeypatch.setattr(
-        wp,
-        "_process_snapshot",
-        lambda: [
-            {"pid": 100, "ppid": 1, "exe": "target.exe"},
-            {"pid": 101, "ppid": 1, "exe": "other.exe"},
-        ],
-    )
-    killed = []
-    monkeypatch.setattr(wp, "_terminate_pid", lambda pid, code=1: killed.append(pid) or True)
-
-    res = call("kill_proc", name="TARGET.exe", confirm=True)
-    assert killed == [100]
-    assert res["ok"] is True
-    assert [k["pid"] for k in res["killed"]] == [100]
-
-
-def test_kill_proc_by_name_skips_protected_self(monkeypatch):
-    monkeypatch.setattr(
-        wp,
-        "_process_snapshot",
-        lambda: [
-            {"pid": os.getpid(), "ppid": 1, "exe": "python.exe"},
-            {"pid": 555, "ppid": 1, "exe": "python.exe"},
-        ],
-    )
-    killed = []
-    monkeypatch.setattr(wp, "_terminate_pid", lambda pid, code=1: killed.append(pid) or True)
-
-    res = call("kill_proc", name="python.exe", confirm=True)
-    assert killed == [555]
-    assert res["skipped_protected"] == [os.getpid()]
