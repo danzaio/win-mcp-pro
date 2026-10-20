@@ -1,0 +1,268 @@
+{
+  "stamp": "20261020-180411",
+  "kind": "driver-conformance",
+  "notes": "Effects asserted from the fixtures' own JSONL logs (external oracle); the decoy fixture proves zero wrong-target leakage. Not an LLM task benchmark and not a competitor comparison.",
+  "summary": {
+    "tasks": 28,
+    "passed": 24,
+    "failed": 4,
+    "skipped": 0,
+    "calls": 100,
+    "ms": 41828.0
+  },
+  "elapsed_s": 47.4,
+  "results": [
+    {
+      "id": "T01",
+      "name": "find target window (identity)",
+      "ok": true,
+      "skipped": false,
+      "ms": 2062.0,
+      "calls": 3,
+      "detail": "window=25365316:42,25365316"
+    },
+    {
+      "id": "T02",
+      "name": "set_value + oracle readback",
+      "ok": true,
+      "skipped": false,
+      "ms": 2141.0,
+      "calls": 3,
+      "detail": "set_value readback + fixture logged the change"
+    },
+    {
+      "id": "T03",
+      "name": "invoke + oracle event",
+      "ok": true,
+      "skipped": false,
+      "ms": 3281.0,
+      "calls": 4,
+      "detail": "invoke + oracle button1 event + status renamed"
+    },
+    {
+      "id": "T04",
+      "name": "wait_text on the status",
+      "ok": true,
+      "skipped": false,
+      "ms": 31.0,
+      "calls": 1,
+      "detail": "wait_text saw the committed status"
+    },
+    {
+      "id": "T05",
+      "name": "wait_enabled on the button",
+      "ok": true,
+      "skipped": false,
+      "ms": 47.0,
+      "calls": 1,
+      "detail": "wait_enabled on the commit button"
+    },
+    {
+      "id": "T06",
+      "name": "frame-pinned click",
+      "ok": true,
+      "skipped": false,
+      "ms": 1875.0,
+      "calls": 5,
+      "detail": "frame-pinned click reached button2"
+    },
+    {
+      "id": "T07",
+      "name": "unknown frame refused",
+      "ok": true,
+      "skipped": false,
+      "ms": 422.0,
+      "calls": 1,
+      "detail": "unknown frame refused with zero effect"
+    },
+    {
+      "id": "T08",
+      "name": "wrong target refused, no leakage",
+      "ok": true,
+      "skipped": false,
+      "ms": 2594.0,
+      "calls": 7,
+      "detail": "wrong-target refused, decoy log untouched"
+    },
+    {
+      "id": "T09",
+      "name": "dump_tree children",
+      "ok": true,
+      "skipped": false,
+      "ms": 62.0,
+      "calls": 1,
+      "detail": "children=['Edit', 'Button', 'Button', 'Text', 'Text', 'Table', 'Titlebar']"
+    },
+    {
+      "id": "T10",
+      "name": "ocr_read window text",
+      "ok": true,
+      "skipped": false,
+      "ms": 969.0,
+      "calls": 2,
+      "detail": "ocr read the window text"
+    },
+    {
+      "id": "T11",
+      "name": "tk click via coordinates (no UIA tree)",
+      "ok": true,
+      "skipped": false,
+      "ms": 1031.0,
+      "calls": 5,
+      "detail": "coordinate click on a no-UIA toolkit"
+    },
+    {
+      "id": "T12",
+      "name": "replay with id binding",
+      "ok": true,
+      "skipped": false,
+      "ms": 0.0,
+      "calls": 1,
+      "detail": "replay: dump_tree -> get_prop by bound id"
+    },
+    {
+      "id": "T13",
+      "name": "doctor environment check",
+      "ok": true,
+      "skipped": false,
+      "ms": 16.0,
+      "calls": 1,
+      "detail": "8/8 checks ok"
+    },
+    {
+      "id": "T14",
+      "name": "cursor_position read",
+      "ok": true,
+      "skipped": false,
+      "ms": 0.0,
+      "calls": 1,
+      "detail": "cursor at (1568, 496)"
+    },
+    {
+      "id": "T15",
+      "name": "double_click two press pairs",
+      "ok": false,
+      "skipped": false,
+      "ms": 4359.0,
+      "calls": 5,
+      "detail": ""
+    },
+    {
+      "id": "T16",
+      "name": "ocr_click by visible text",
+      "ok": true,
+      "skipped": false,
+      "ms": 235.0,
+      "calls": 2,
+      "detail": "ocr_click hit the TAP label by its text"
+    },
+    {
+      "id": "T17",
+      "name": "wait_change timeout + fire",
+      "ok": true,
+      "skipped": false,
+      "ms": 7484.0,
+      "calls": 7,
+      "detail": "quiet region timed out, fresh text fired in 375ms"
+    },
+    {
+      "id": "T18",
+      "name": "displays geometry",
+      "ok": true,
+      "skipped": false,
+      "ms": 0.0,
+      "calls": 1,
+      "detail": "2 display(s), primary 1920x1080"
+    },
+    {
+      "id": "T19",
+      "name": "form_fill with readback",
+      "ok": true,
+      "skipped": false,
+      "ms": 1860.0,
+      "calls": 2,
+      "detail": "form_fill wrote one field with readback"
+    },
+    {
+      "id": "T20",
+      "name": "table_extract grid literals",
+      "ok": true,
+      "skipped": false,
+      "ms": 1359.0,
+      "calls": 2,
+      "detail": "table_extract read [4, 2]"
+    },
+    {
+      "id": "T21",
+      "name": "choose_file real Open dialog",
+      "ok": true,
+      "skipped": false,
+      "ms": 7297.0,
+      "calls": 23,
+      "detail": "choose_file opened the file in Notepad"
+    },
+    {
+      "id": "T22",
+      "name": "win_close dedicated window",
+      "ok": true,
+      "skipped": false,
+      "ms": 437.0,
+      "calls": 4,
+      "detail": "win_close asked, window gone"
+    },
+    {
+      "id": "T23",
+      "name": "get_active_window shape",
+      "ok": true,
+      "skipped": false,
+      "ms": 16.0,
+      "calls": 1,
+      "detail": "foreground is 'WinMCP Bench Tk 63589307'"
+    },
+    {
+      "id": "T24",
+      "name": "open_default folder + ghost",
+      "ok": true,
+      "skipped": false,
+      "ms": 1250.0,
+      "calls": 7,
+      "detail": "open_default opened a folder, ghost refused"
+    },
+    {
+      "id": "T25",
+      "name": "type_text keystrokes + oracle",
+      "ok": false,
+      "skipped": false,
+      "ms": 1312.0,
+      "calls": 2,
+      "detail": "[TextContent(type='text', text='{\"error\": \"TypeError\", \"message\": \"set_value() got an unexpected keyword argument \\'value\\'\"}', annotations=None, meta=None)]"
+    },
+    {
+      "id": "T26",
+      "name": "key_hold grows field",
+      "ok": false,
+      "skipped": false,
+      "ms": 1297.0,
+      "calls": 2,
+      "detail": "[TextContent(type='text', text='{\"error\": \"TypeError\", \"message\": \"set_value() got an unexpected keyword argument \\'value\\'\"}', annotations=None, meta=None)]"
+    },
+    {
+      "id": "T27",
+      "name": "stepped drag moves window",
+      "ok": false,
+      "skipped": false,
+      "ms": 203.0,
+      "calls": 4,
+      "detail": "({'left': 200, 'top': 150, 'right': 660, 'bottom': 580}, {'left': 200, 'top': 150, 'right': 660, 'bottom': 580})"
+    },
+    {
+      "id": "T28",
+      "name": "win_shot file + frame",
+      "ok": true,
+      "skipped": false,
+      "ms": 188.0,
+      "calls": 2,
+      "detail": "win_shot saved 460x430"
+    }
+  ]
+}

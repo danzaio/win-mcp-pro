@@ -6,7 +6,7 @@ Run::
 
 Spawns two disposable WinForms fixtures (a target and a decoy; each logs
 every observable effect to its own JSONL file), starts the MCP server over
-stdio, and runs 33 deterministic driver-conformance tasks. Effects are
+stdio, and runs 28 deterministic driver-conformance tasks. Effects are
 asserted from the fixtures' own logs - the external oracle - never from the
 server's reply, and the decoy's log proves zero wrong-target leakage. Writes
 JSON + a markdown summary and exits non-zero if any task fails.
@@ -37,7 +37,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "bench" / "fixtures" / "winforms_probe.ps1"
 ALLOWED = ("list_windows,snapshot,find,get_prop,set_value,invoke,zoom,click,"
            "wait_text,wait_enabled,dump_tree,ocr_read,replay,doctor,"
-           "cursor_position,double_click,ocr_click,wait_change,"
+           "cursor_position,double_click,ocr_click,wait_change,move,"
            "menu_click,form_fill,table_extract,choose_file,displays,"
            "win_close,focus,"
            "win_min,win_restore,shortcut,get_active_window,"
@@ -140,7 +140,9 @@ def _spawn_fixture(title: str, log: str, x: int, y: int, names: dict) -> subproc
 
 def _spawn_tk(title: str, log: str, x: int, y: int) -> subprocess.Popen:
     return subprocess.Popen(
-        [sys.executable, str(ROOT / "bench" / "fixtures" / "tk_probe.py"),
+        # The base interpreter, not the venv launcher: on Windows a venv's python.exe
+        # starts the real interpreter as a child, so Popen.pid would not own the window.
+        [getattr(sys, "_base_executable", sys.executable), str(ROOT / "bench" / "fixtures" / "tk_probe.py"),
          title, log, str(x), str(y)],
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
@@ -197,6 +199,13 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         calls["n"] += 1
                         reply = await session.call_tool(name, args or {})
                         assert reply.is_error is False, reply.content
+                        return json.loads(reply.content[0].text)
+
+                    async def refusal(name: str, args: dict | None = None) -> dict:
+                        """A call the server must refuse: is_error true, typed body."""
+                        calls["n"] += 1
+                        reply = await session.call_tool(name, args or {})
+                        assert reply.is_error is True, reply.content
                         return json.loads(reply.content[0].text)
 
                     async def task(tid: str, desc: str, fn) -> None:
@@ -824,7 +833,7 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         assert exp_hwnd, "Explorer window never appeared"
                         closed = await call("win_close", {"hwnd": exp_hwnd})
                         assert closed["ok"], closed
-                        refused = await call("open_default", {
+                        refused = await refusal("open_default", {
                             "target": str(workdir / "ghost-file.txt")})
                         assert refused["error"] == "FILE_NOT_FOUND", refused
                         return "open_default opened a folder, ghost refused"
@@ -833,13 +842,23 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         window = await target_window()
                         field = await find_in_window(window, target_names["input"], "Edit")
                         text = f"typed-{suffix}"
-                        # one retry: a physical keystroke can interleave and
-                        # steal the foreground mid-batch; the oracle decides.
+                        texts: list = []
+                        # One retry: a physical keystroke can interleave and steal the
+                        # foreground mid-batch. Typing appends, so every attempt starts
+                        # from an empty field, and the oracle log gets time to catch up
+                        # (the fixture logs on its own message pump, which lags under load).
                         for _attempt in range(2):
+                            cleared = await call("set_value", {"id": field, "text": ""})
+                            assert cleared["ok"], cleared
                             typed = await call("type_text", {"text": text, "target": field})
                             assert typed["ok"] and typed["chars"] == len(text), typed
-                            texts = [e.get("value") for e in _read_events(target_log)
-                                     if e.get("event") == "text"]
+                            deadline = time.monotonic() + 4.0
+                            while time.monotonic() < deadline:
+                                texts = [e.get("value") for e in _read_events(target_log)
+                                         if e.get("event") == "text"]
+                                if texts and texts[-1] == text:
+                                    break
+                                await asyncio.sleep(0.2)
                             if texts and texts[-1] == text:
                                 break
                         assert texts and texts[-1] == text, texts[-5:]
@@ -848,6 +867,8 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                     async def t26():
                         window = await target_window()
                         field = await find_in_window(window, target_names["input"], "Edit")
+                        cleared = await call("set_value", {"id": field, "text": ""})
+                        assert cleared["ok"], cleared
                         before = (await call("get_value", {"id": field}))["value"] or ""
                         held = await call("key_hold", {"key": "x", "ms": 800,
                                                        "target": field})

@@ -1,10 +1,10 @@
 # bench - driver-conformance matrix
 
-```
-python bench/run_matrix.py
+```powershell
+.venv\Scripts\python.exe bench\run_matrix.py
 ```
 
-Spawns disposable fixtures and the MCP server over stdio, then runs 33
+Spawns disposable fixtures and the MCP server over stdio, then runs 28
 deterministic tasks. Every observable effect is written by the fixture
 process itself to a JSONL log; the runner asserts against those logs (the
 external oracle), so a green run means the effect happened in the
@@ -24,7 +24,10 @@ Fixtures:
 Tasks: identity find, set_value + readback, invoke, wait_text,
 wait_enabled, frame-pinned click, unknown-frame refusal, wrong-target
 refusal + leak check, dump_tree, ocr_read, Tk coordinate click, replay
-with id binding, doctor.
+with id binding, doctor, cursor_position, double_click, ocr_click,
+wait_change, displays, form_fill, table_extract, choose_file (a real Open
+dialog in Notepad), win_close, get_active_window, open_default (including a
+refused missing path), type_text, key_hold, a stepped drag, win_shot.
 
 Run it on an idle desktop: it moves the real cursor and asserts effects on
 its own windows; concurrent physical mouse activity can disrupt a synthetic

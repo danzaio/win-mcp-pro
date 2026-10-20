@@ -57,3 +57,9 @@ line-length = 110
 
 [tool.ruff.lint]
 select = ["E9", "F"]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+pythonPlatform = "Windows"
+include = ["win_mcp_pro", "tests", "bench"]
