@@ -1,6 +1,6 @@
 """Task 12 tests: security + UIPI.
 
-Self-contained on purpose: the repo scaffold (server/__init__.py,
+Self-contained on purpose: the repo scaffold (win_mcp_pro/server/__init__.py,
 tests/__init__.py) is owned by Task 1 and may not exist yet, so the
 repo root is bootstrapped onto sys.path here. server.security must be
 import-safe on any platform.
@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from server import security  # noqa: E402
+from win_mcp_pro.server import security  # noqa: E402
 
 
 # ---------------------------------------------------------------- parse_tool_filter

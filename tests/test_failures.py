@@ -106,9 +106,9 @@ def _patch_everywhere(monkeypatch, names: list[str], value) -> list[str]:
     """Install a seam on every module that declares it (aliases may be bound
     at import time, so patching only the definition module is not enough)."""
     patched = []
-    for modname in ("tools.winproc", "tools.snapshot", "tools.query",
-                    "tools.patterns", "tools.values",
-                    "server.main", "server.registry", "server.security"):
+    for modname in ("win_mcp_pro.tools.winproc", "win_mcp_pro.tools.snapshot", "win_mcp_pro.tools.query",
+                    "win_mcp_pro.tools.patterns", "win_mcp_pro.tools.values",
+                    "win_mcp_pro.server.main", "win_mcp_pro.server.registry", "win_mcp_pro.server.security"):
         mod = _opt(modname)
         if mod is None:
             continue
@@ -308,26 +308,26 @@ SNAPSHOT_SEAMS = ("_active_window_control", "_window_controls", "_list_windows",
 def _patch_snapshot_seams(monkeypatch, active, window_controls, list_windows) -> list[str]:
     """Patch whichever provider seams tools.snapshot actually exposes."""
     patched = _patch_everywhere(monkeypatch, list(SNAPSHOT_SEAMS), active)
-    snapshot = _opt("tools.snapshot")
+    snapshot = _opt("win_mcp_pro.tools.snapshot")
     if snapshot is not None:
         if hasattr(snapshot, "_active_window_control"):
             monkeypatch.setattr(snapshot, "_active_window_control",
                                 lambda: active, raising=False)
-            patched.append("tools.snapshot._active_window_control")
+            patched.append("win_mcp_pro.tools.snapshot._active_window_control")
         if hasattr(snapshot, "_window_controls"):
             monkeypatch.setattr(snapshot, "_window_controls",
                                 lambda: window_controls, raising=False)
-            patched.append("tools.snapshot._window_controls")
+            patched.append("win_mcp_pro.tools.snapshot._window_controls")
         if hasattr(snapshot, "_list_windows"):
             monkeypatch.setattr(snapshot, "_list_windows",
                                 lambda: list_windows, raising=False)
-            patched.append("tools.snapshot._list_windows")
+            patched.append("win_mcp_pro.tools.snapshot._list_windows")
     return patched
 
 
 def _register_exclusion(monkeypatch, name: str) -> bool:
     """Register `name` in the exclusion seam the snapshot/proc slice exposes."""
-    for owner in ("tools.winproc", "tools.snapshot"):
+    for owner in ("win_mcp_pro.tools.winproc", "win_mcp_pro.tools.snapshot"):
         mod = _opt(owner)
         if mod is None:
             continue
@@ -357,7 +357,7 @@ def test_slow_provider_skipped_when_excluded(monkeypatch):
     spec §5: "exclude_proc antes de qualquer traversal (árvore lenta nunca é
     entrada)". Skip when the slice has not exposed the seam yet.
     """
-    snapshot = _mod("tools.snapshot")
+    snapshot = _mod("win_mcp_pro.tools.snapshot")
 
     slow = _SlowNode("slowui.exe", 4242, 0x900, "WindowControl",
                      sleep_s=0.5, fanout=6, levels=3)
@@ -372,7 +372,7 @@ def test_slow_provider_skipped_when_excluded(monkeypatch):
             "provider before any traversal — the contract assertions below are "
             "ready for the slice that lands it"
         )
-    winproc = _opt("tools.winproc")
+    winproc = _opt("win_mcp_pro.tools.winproc")
     if winproc is not None:
         monkeypatch.setattr(
             winproc,
@@ -384,7 +384,7 @@ def test_slow_provider_skipped_when_excluded(monkeypatch):
         )
 
     snap_fn = _resolve(snapshot, ["snapshot", "take_snapshot", "capture"])
-    assert snap_fn is not None, "tools.snapshot exposes no snapshot()"
+    assert snap_fn is not None, "win_mcp_pro.tools.snapshot exposes no snapshot()"
 
     started = time.monotonic()
     call = Deadline(HANG_BUDGET_S)
@@ -419,7 +419,7 @@ def test_slow_provider_times_out_per_call(monkeypatch):
     budget the walk needs ~20s; with it the call must come back in ~0.6s with
     the typed SNAPSHOT_TIMEOUT skip (or a partial capture).
     """
-    snapshot = _mod("tools.snapshot")
+    snapshot = _mod("win_mcp_pro.tools.snapshot")
 
     slow = _SlowNode("slowui.exe", 4242, 0x900, "WindowControl",
                      sleep_s=0.5, fanout=6, levels=3)
@@ -428,7 +428,7 @@ def test_slow_provider_times_out_per_call(monkeypatch):
     assert patched, "no provider seam in tools.snapshot to inject the mock"
 
     snap_fn = _resolve(snapshot, ["snapshot", "take_snapshot", "capture"])
-    assert snap_fn is not None, "tools.snapshot exposes no snapshot()"
+    assert snap_fn is not None, "win_mcp_pro.tools.snapshot exposes no snapshot()"
 
     call = Deadline(HANG_BUDGET_S)
     started = time.monotonic()
@@ -479,7 +479,7 @@ def test_slow_provider_times_out_per_call(monkeypatch):
 
 def test_elevated_target_typed_error(monkeypatch):
     """check_uipi on a higher-integrity target -> ELEVATION_REQUIRED, fast."""
-    security = _mod("server.security")
+    security = _mod("win_mcp_pro.server.security")
 
     target_pid = 4242
 
@@ -508,7 +508,7 @@ def test_elevated_target_typed_error(monkeypatch):
 
 def test_elevated_target_control_equal_integrity(monkeypatch):
     """Non-elevated target -> ok (guards the test above against always-error)."""
-    security = _mod("server.security")
+    security = _mod("win_mcp_pro.server.security")
 
     monkeypatch.setattr(security, "integrity_rid", lambda pid: 0x2000)
     call = Deadline(10.0)
@@ -584,7 +584,7 @@ def _install_tree(monkeypatch, query, windows) -> None:
 
 def test_find_finds_present_element_control(monkeypatch):
     """Control: with a healthy tree, find() must resolve the element."""
-    query = _mod("tools.query")
+    query = _mod("win_mcp_pro.tools.query")
     _install_tree(monkeypatch, query, [_NamedRoot()])
 
     call = Deadline(20.0)
@@ -602,7 +602,7 @@ def test_find_finds_present_element_control(monkeypatch):
 
 def test_missing_element_not_found_with_vision_hint(monkeypatch):
     """Custom-render app: NOT_FOUND with reason + vision fallback, no guessing."""
-    query = _mod("tools.query")
+    query = _mod("win_mcp_pro.tools.query")
     _install_tree(monkeypatch, query, [_CustomRenderRoot()])
 
     call = Deadline(20.0)

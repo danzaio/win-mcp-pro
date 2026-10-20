@@ -62,7 +62,7 @@ class UiaWorkerSupervisor:
             raise ValueError("max_restarts must be >= 1")
         if restart_window_s <= 0:
             raise ValueError("restart_window_s must be > 0")
-        self._command = list(command) if command else [sys.executable, "-m", "server.worker"]
+        self._command = list(command) if command else [sys.executable, "-m", "win_mcp_pro.server.worker"]
         self._timeout_s = timeout_ms / 1000.0
         self._max_restarts = int(max_restarts)
         self._window_s = float(restart_window_s)

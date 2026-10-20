@@ -186,8 +186,8 @@ def test_stdio_uia_vertical_slice_touches_only_its_own_probe_window():
                 server_exit_file = Path({str(server_exit_file)!r})
                 Path({str(server_pid_file)!r}).write_text(str(os.getpid()), encoding="ascii")
                 atexit.register(lambda: server_exit_file.write_text("exited", encoding="ascii"))
-                sys.argv = ["server.main", "--tools", {allowed!r}]
-                runpy.run_module("server.main", run_name="__main__")
+                sys.argv = ["win_mcp_pro.server.main", "--tools", {allowed!r}]
+                runpy.run_module("win_mcp_pro.server.main", run_name="__main__")
                 """
             )
             params = StdioServerParameters(

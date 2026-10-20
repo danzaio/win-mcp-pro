@@ -11,7 +11,7 @@ import time
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from tools import waits
+from win_mcp_pro.tools import waits
 
 
 # --- fake UIA providers -----------------------------------------------------

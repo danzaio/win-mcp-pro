@@ -1,6 +1,6 @@
 """UIA worker process (Phase B3): executes the walk tools behind a pipe.
 
-Run as ``python -m server.worker``; the supervisor (server/supervisor.py)
+Run as ``python -m win_mcp_pro.server.worker``; the supervisor (win_mcp_pro/server/supervisor.py)
 spawns it lazily and owns its lifecycle. Protocol: one JSON request per
 line on stdin (``{"id": n, "tool": name, "args": {...}}``), one JSON reply
 per line on stdout (``{"id": n, "result": {...}}``). stdout carries nothing
@@ -17,8 +17,7 @@ import sys
 
 
 def _dispatch(name: str, args: dict) -> object:
-    import tools
-
+    import win_mcp_pro.tools as tools
     if not tools.TOOL_REGISTRY:
         tools.load_all_modules()
     entry = tools.get(name)

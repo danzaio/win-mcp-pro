@@ -1,4 +1,4 @@
-"""Task 9 - window/process RE tools (tools/winproc.py).
+"""Task 9 - window/process RE tools (win_mcp_pro/tools/winproc.py).
 
 Contract tests for the winproc module. Real Win32 calls are exercised for the
 cheap, side-effect-free probes (list_windows); anything destructive is only ever tested against monkeypatched seams, never executed for real.
@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools import winproc as wp  # noqa: E402
+from win_mcp_pro.tools import winproc as wp  # noqa: E402
 
 
 def json_schema(tool):

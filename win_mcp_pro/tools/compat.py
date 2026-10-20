@@ -1,7 +1,7 @@
 """Compat tools: coordinate-level pointer, keyboard and clipboard input.
 
 These are the escape hatch for apps without a usable UIA tree. The spec
-prefers Control Patterns (see tools/patterns.py and tools/values.py), but
+prefers Control Patterns (see win_mcp_pro/tools/patterns.py and win_mcp_pro/tools/values.py), but
 Canvas, games and custom-rendered surfaces leave no choice, so there has
 to be a coordinate path — deliberately slower, deliberately logged.
 
@@ -21,7 +21,7 @@ from typing import Any, Callable, Mapping
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from tools import vision
+from win_mcp_pro.tools import vision
 
 BUTTONS = ("left", "right", "middle")
 DIRECTIONS = ("up", "down", "left", "right")
@@ -578,7 +578,7 @@ def _refuse(code: str, reason: str, **extra: Any) -> dict:
 
 def _resolve_control(element_id: str) -> Any:
     """Resolve any published element id to a live control, else None."""
-    from tools import patterns
+    from win_mcp_pro.tools import patterns
 
     try:
         return patterns.resolve_element(element_id)
@@ -603,7 +603,7 @@ def _target_info(control: Any) -> dict | None:
 
 
 def _check_uipi(pid: int) -> dict:
-    from server.security import check_uipi
+    from win_mcp_pro.server.security import check_uipi
 
     return check_uipi(pid)
 

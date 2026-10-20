@@ -84,7 +84,7 @@ def _extract_id(result: Any) -> str | None:
 
 
 def handler_replay(args: Any) -> dict:
-    import tools as tools_pkg
+    import win_mcp_pro.tools as tools_pkg
 
     m = ReplayArgs(**dict(args or {}))
     ids: list[str | None] = []

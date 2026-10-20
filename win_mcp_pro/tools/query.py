@@ -285,7 +285,7 @@ def _register(control: Any, parent_path: str, window: str,
     _remember(record)
     # the act layer resolves by id from its own registry: publish the live
     # control so a find id works in invoke/toggle/... with no second walk.
-    from tools import patterns as _patterns
+    from win_mcp_pro.tools import patterns as _patterns
 
     _patterns.register_element(record.id, control)
     return record
@@ -514,7 +514,7 @@ def _lookup_snapshot_id(element_id: str) -> _Record | dict:
     the act layer (registry, then parse plus budgeted walk) and are wrapped
     in a record on success. Anything else stays a typed NOT_FOUND.
     """
-    from tools import patterns as _patterns
+    from win_mcp_pro.tools import patterns as _patterns
 
     try:
         control = _patterns.resolve_element(element_id)

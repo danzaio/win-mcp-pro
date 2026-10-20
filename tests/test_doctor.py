@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from tools import doctor
+from win_mcp_pro.tools import doctor
 
 
 @pytest.fixture()

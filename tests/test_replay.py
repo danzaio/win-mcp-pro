@@ -10,8 +10,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-import tools
-from tools import replay
+import win_mcp_pro.tools as tools
+from win_mcp_pro.tools import replay
 
 
 @pytest.fixture()

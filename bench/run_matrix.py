@@ -180,8 +180,8 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
     extra_procs: list = []
 
     server_script = ("import runpy, sys\n"
-                     f"sys.argv = ['server.main', '--tools', {ALLOWED!r}]\n"
-                     "runpy.run_module('server.main', run_name='__main__')\n")
+                     f"sys.argv = ['win_mcp_pro.server.main', '--tools', {ALLOWED!r}]\n"
+                     "runpy.run_module('win_mcp_pro.server.main', run_name='__main__')\n")
     params = StdioServerParameters(command=sys.executable, args=["-c", server_script],
                                    cwd=str(ROOT))
     results: list[dict] = []

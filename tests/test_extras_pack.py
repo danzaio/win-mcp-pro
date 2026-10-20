@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from tools import compat, vision, winproc
+from win_mcp_pro.tools import compat, vision, winproc
 
 
 @pytest.fixture(autouse=True)

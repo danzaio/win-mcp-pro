@@ -10,8 +10,8 @@ import pytest
 from mcp import ClientSession
 from mcp.shared.memory import create_client_server_memory_streams
 
-from server import main, registry
-from tools import snapshot, winproc
+from win_mcp_pro.server import main, registry
+from win_mcp_pro.tools import snapshot, winproc
 
 
 class FakeWindow:

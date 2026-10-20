@@ -1,4 +1,4 @@
-"""Tests for tools/compat.py (pointer/keyboard/clipboard compat tools).
+"""Tests for win_mcp_pro/tools/compat.py (pointer/keyboard/clipboard compat tools).
 
 Everything here runs with no real input: the DRY_RUN path is asserted to
 perform nothing, and the real path is asserted against a monkeypatched
@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.compat import TOOLS  # noqa: E402
+from win_mcp_pro.tools.compat import TOOLS  # noqa: E402
 
 
 # ---------------------------------------------------------------- helpers
@@ -43,7 +43,7 @@ def real(monkeypatch):
     default profile now refuses; the explicit unrestricted profile is what
     a caller gets with ``--input-unrestricted``.
     """
-    import tools.compat as compat
+    import win_mcp_pro.tools.compat as compat
 
     monkeypatch.delenv("DRY_RUN", raising=False)
     monkeypatch.setenv("WINMCP_INPUT_UNRESTRICTED", "1")
@@ -59,7 +59,7 @@ def real(monkeypatch):
 @pytest.fixture
 def poisoned(monkeypatch):
     """Primitives that fail loudly if anything real fires."""
-    import tools.compat as compat
+    import win_mcp_pro.tools.compat as compat
 
     def boom(*a, **k):
         raise AssertionError("real input fired during dry run")
@@ -164,7 +164,7 @@ def test_click_real_right_button(real, monkeypatch):
 
 def test_click_real_without_coords_uses_cursor(real, monkeypatch):
     monkeypatch.setenv("DRY_RUN", "0")
-    monkeypatch.setattr("tools.compat._cursor_pos", lambda: (7, 9))
+    monkeypatch.setattr("win_mcp_pro.tools.compat._cursor_pos", lambda: (7, 9))
     handler_of("click")({})
     assert real["events"] == [
         {"type": "mouse", "action": "down", "button": "left"},
@@ -234,7 +234,7 @@ def test_move_real_drag_from_explicit_start(real, monkeypatch):
 
 def test_move_real_drag_from_cursor(real, monkeypatch):
     monkeypatch.setenv("DRY_RUN", "0")
-    monkeypatch.setattr("tools.compat._cursor_pos", lambda: (11, 22))
+    monkeypatch.setattr("win_mcp_pro.tools.compat._cursor_pos", lambda: (11, 22))
     handler_of("move")({"x": 100, "y": 200, "drag": True})
     assert real["events"][0] == {"type": "mouse", "action": "move", "x": 11.0, "y": 22.0}
     assert real["events"][1] == {"type": "mouse", "action": "down", "button": "left"}

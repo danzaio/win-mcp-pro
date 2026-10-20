@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from tools import query, values, vision, winproc
+from win_mcp_pro.tools import query, values, vision, winproc
 
 
 # --------------------------------------------------------------------------

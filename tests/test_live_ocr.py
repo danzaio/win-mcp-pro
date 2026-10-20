@@ -18,7 +18,7 @@ import sys
 import pytest
 from PIL import Image, ImageDraw, ImageFont
 
-from tools import ocr, vision
+from win_mcp_pro.tools import ocr, vision
 
 pytestmark = pytest.mark.skipif(
     sys.platform != "win32" or os.environ.get("WINMCP_RUN_LIVE_OCR") != "1",

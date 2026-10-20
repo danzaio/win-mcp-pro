@@ -87,7 +87,7 @@ class UiaWaitsProvider(WaitsProvider):
     """
 
     def resolve_element(self, element_id: str) -> Any | None:
-        from tools import patterns
+        from win_mcp_pro.tools import patterns
 
         try:
             return patterns.resolve_element(element_id)
@@ -359,7 +359,7 @@ def handler_wait_change(args: Any) -> dict:
     ``{"ok", "elapsed_ms", "changed"}``; a capture failure mid-wait is
     "not yet" (same philosophy as the tree waits), never success.
     """
-    from tools import vision
+    from win_mcp_pro.tools import vision
 
     m = WaitChangeArgs(**dict(args or {}))
     try:

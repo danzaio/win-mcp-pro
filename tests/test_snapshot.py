@@ -17,7 +17,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tools import snapshot as snap  # noqa: E402
+from win_mcp_pro.tools import snapshot as snap  # noqa: E402
 
 
 # --------------------------------------------------------------------------
@@ -434,7 +434,7 @@ class _HealthyLeaf:
 
 @pytest.fixture
 def cleared_exclusions():
-    from tools import winproc
+    from win_mcp_pro.tools import winproc
 
     winproc.clear_exclusions()
     snap._EXCLUDED_PROCS.clear()
@@ -460,7 +460,7 @@ def test_slow_window_skipped_healthy_window_kept(monkeypatch, cleared_exclusions
 
 
 def test_excluded_window_is_never_walked(monkeypatch, cleared_exclusions):
-    from tools import winproc
+    from win_mcp_pro.tools import winproc
 
     slow = _SlowProviderNode("slowui.exe", 4242, 0x900, sleep_s=5.0)
     monkeypatch.setattr(snap, "_list_windows", lambda: [slow, _HealthyWindow()])

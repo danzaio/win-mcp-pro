@@ -20,7 +20,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
-from tools import vision
+from win_mcp_pro.tools import vision
 
 _BACKEND_MISSING = "vision backend unavailable (mss/pillow not installed)"
 _WINSDK_MISSING = "winsdk is not installed (pip install winsdk)"
@@ -251,7 +251,7 @@ def handler_ocr_click(args: Any) -> dict:
     m = OcrClickArgs(**dict(args or {}))
     if _dry():
         return {"ok": True, "dry_run": True, "monitor": m.monitor, "text": m.text}
-    from tools import compat
+    from win_mcp_pro.tools import compat
 
     if m.target is None and not compat._unrestricted():
         return {"ok": False, "error": "TARGET_REQUIRED",

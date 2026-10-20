@@ -6,7 +6,7 @@ goes to stderr (see ``server.audit``).
 
 Run with::
 
-    python -m server.main [--tools find,invoke] [--exclude-tools clipboard_set]
+    python -m win_mcp_pro.server.main [--tools find,invoke] [--exclude-tools clipboard_set]
                           [--input-unrestricted]
 """
 
@@ -23,7 +23,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from pydantic import BaseModel
 
-from tools import call_handler as _call_handler
+from win_mcp_pro.tools import call_handler as _call_handler
 
 from . import registry
 from .audit import audit
@@ -66,8 +66,7 @@ def _bridge_tools_to_registry(worker=None) -> int:
     published, so the server registry holds the proxied handlers; wrapping
     after publication would leave the original in-process handlers live.
     """
-    import tools
-
+    import win_mcp_pro.tools as tools
     tools.clear()
     registry.reset_registry()
     tools.load_all_modules()
@@ -220,7 +219,7 @@ def _enable_worker_proxy(supervisor) -> None:
     runs it in a thread: the blocking worker wait never freezes the
     protocol loop.
     """
-    import tools as tools_pkg
+    import win_mcp_pro.tools as tools_pkg
 
     from .supervisor import WORKER_TOOLS
 
@@ -311,7 +310,7 @@ def main(argv: list[str] | None = None) -> int:
              "built-in server.worker module (tests use this)",
     )
     args = parser.parse_args(argv)
-    from tools import compat
+    from win_mcp_pro.tools import compat
 
     compat.set_unrestricted(args.input_unrestricted)
     # Fail-closed filtering: an explicit but empty --tools is a config error

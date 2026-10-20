@@ -324,7 +324,7 @@ def _normalize_exe(value: Any) -> str:
 def _excluded_names() -> set[str]:
     """This module's exclusions merged with winproc's registry, when loaded."""
     names = set(_EXCLUDED_PROCS)
-    winproc = sys.modules.get("tools.winproc")
+    winproc = sys.modules.get("win_mcp_pro.tools.winproc")
     if winproc is not None:
         get_names = getattr(winproc, "excluded_names", None)
         extra = get_names() if callable(get_names) else getattr(winproc, "_EXCLUDE", ())
@@ -337,7 +337,7 @@ def _process_names_by_pid(excluded_names: set[str]) -> dict[int, str]:
     """Resolve process IDs to executable basenames once per snapshot call."""
     if not excluded_names:
         return {}
-    winproc = sys.modules.get("tools.winproc")
+    winproc = sys.modules.get("win_mcp_pro.tools.winproc")
     enumerate_processes = getattr(winproc, "_process_snapshot", None)
     if not callable(enumerate_processes):
         return {}

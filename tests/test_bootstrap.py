@@ -25,7 +25,7 @@ from mcp import ClientSession
 from mcp.shared.memory import create_client_server_memory_streams
 from pydantic import BaseModel
 
-from server import audit, main, registry
+from win_mcp_pro.server import audit, main, registry
 
 
 def _process_is_running(pid: int) -> bool:
@@ -306,9 +306,9 @@ def test_stdio_handler_exception_keeps_server_alive_and_stdout_protocol_clean(tm
         import os
         from pathlib import Path
         from pydantic import BaseModel
-        from server import registry
-        from server.audit import audit
-        from server.main import _bridge_tools_to_registry, _serve, build_server
+        from win_mcp_pro.server import registry
+        from win_mcp_pro.server.audit import audit
+        from win_mcp_pro.server.main import _bridge_tools_to_registry, _serve, build_server
 
         server_exit_file = Path({str(server_exit_file)!r})
         Path({str(server_pid_file)!r}).write_text(str(os.getpid()), encoding="ascii")
@@ -390,8 +390,7 @@ def test_stdio_handler_exception_keeps_server_alive_and_stdout_protocol_clean(tm
 
 
 def test_production_bridge_registers_every_tool_module():
-    import tools
-
+    import win_mcp_pro.tools as tools
     try:
         count = main._bridge_tools_to_registry()
         assert count == len(tools.names()) == len(registry.registered_tools())
@@ -440,8 +439,7 @@ def test_call_handler_does_not_retry_handler_after_internal_type_error():
 
 
 def test_bridged_server_lists_and_calls_real_tool():
-    import tools
-
+    import win_mcp_pro.tools as tools
     try:
         count = main._bridge_tools_to_registry()
         server = main.build_server()
@@ -488,8 +486,8 @@ def test_stdio_subprocess_lists_and_calls_a_desktop_independent_tool(tmp_path):
         server_exit_file = Path({str(server_exit_file)!r})
         Path({str(server_pid_file)!r}).write_text(str(os.getpid()), encoding="ascii")
         atexit.register(lambda: server_exit_file.write_text("exited", encoding="ascii"))
-        sys.argv = ["server.main", "--tools", "exclude_proc"]
-        runpy.run_module("server.main", run_name="__main__")
+        sys.argv = ["win_mcp_pro.server.main", "--tools", "exclude_proc"]
+        runpy.run_module("win_mcp_pro.server.main", run_name="__main__")
         """
     )
     params = StdioServerParameters(

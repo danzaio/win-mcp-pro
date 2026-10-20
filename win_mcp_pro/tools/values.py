@@ -5,7 +5,7 @@ Task 6 of the implementation plan. Rules from the spec (§3) respected here:
 - Acts by Control Pattern, never by keystroke per letter and never by raw
   coordinates. ``set_value``/``get_value`` go through the ValuePattern;
   ``paste_text`` (long text, apps whose ValuePattern is unreliable) funnels
-  through the same clipboard and SendInput seams as tools/compat.py.
+  through the same clipboard and SendInput seams as win_mcp_pro/tools/compat.py.
 - ``menu_click`` walks menu items structurally: MenuItem by MenuItem, with
   ExpandCollapse (or Invoke, which is how classic Win32 menus open a submenu)
   expanding the parent and Invoke on the last item.
@@ -37,7 +37,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from tools import compat, query, snapshot
+from win_mcp_pro.tools import compat, query, snapshot
 
 log = logging.getLogger("win-mcp-pro.values")
 log.addHandler(logging.NullHandler())

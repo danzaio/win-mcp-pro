@@ -15,7 +15,7 @@ our version of it lives:
 | Refusal taxonomy per toolkit (OMP) | 12 typed input refusal codes, `WORKER_*` worker codes, browser `*_REF` codes | `tests/test_input_binding.py`, `tests/test_uia_worker.py`, `tests/test_browser.py` |
 | Explicit takeover/restore (OMP saves/restores foreground and cursor) | bounded activation attempt with `ACTIVATION_FAILED`; the live click test restores the cursor | `tests/test_input_binding.py`, `tests/test_live_click_binding.py` |
 | Short-send cleanup, no partial resend (OMP) | one SendInput batch per action; refusals happen before any event is sent | `tests/test_input_binding.py` (zero-input spy) |
-| Supervised worker with reset semantics (OMP worker + supervisor) | `server/supervisor.py` + `server/worker.py` (deadline, kill, respawn, crash-loop guard, no double retry) | `tests/test_uia_worker.py`; commit `951d5ff` |
+| Supervised worker with reset semantics (OMP worker + supervisor) | `win_mcp_pro/server/supervisor.py` + `win_mcp_pro/server/worker.py` (deadline, kill, respawn, crash-loop guard, no double retry) | `tests/test_uia_worker.py`; commit `951d5ff` |
 | DOM automation (Microsoft Windows 365 for Agents) | isolated `browser_*` tools over CDP (disposable profile, no OS input) | `tests/test_browser.py`, `tests/test_live_browser.py`; commit `bafbb09` |
 | OCR (Microsoft Windows 365 for Agents) | `ocr_read` with per-word boxes and a clickable frame | `tests/test_ocr.py`, `tests/test_live_ocr.py`; commit `7ee9333` |
 | Screenshots as protocol images (Microsoft, Playwright MCP) | `ImageContent` envelope with origin/frame metadata and a 4 MB cap | `tests/test_vision.py`; commit `44a51ee` |

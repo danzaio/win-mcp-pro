@@ -46,7 +46,7 @@ For clients that use `mcpServers` configuration, use this read-only setup. Repla
       "command": "C:\\tools\\win-mcp-pro\\.venv\\Scripts\\python.exe",
       "args": [
         "-m",
-        "server.main",
+        "win_mcp_pro.server.main",
         "--tools",
         "list_windows,snapshot,find,dump_tree,get_prop,get_patterns"
       ],
@@ -59,7 +59,7 @@ For clients that use `mcpServers` configuration, use this read-only setup. Repla
 Your client starts the server and manages its stdio connection. To check startup manually:
 
 ```powershell
-.\.venv\Scripts\python.exe -m server.main --tools list_windows,snapshot,find,dump_tree,get_prop,get_patterns
+.\.venv\Scripts\python.exe -m win_mcp_pro.server.main --tools list_windows,snapshot,find,dump_tree,get_prop,get_patterns
 ```
 
 The process waits for MCP requests. Logs go to stderr; stdout is reserved for the protocol.

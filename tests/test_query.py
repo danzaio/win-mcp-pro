@@ -1,4 +1,4 @@
-"""Tests for tools/query.py — find / dump_tree / get_prop / get_patterns.
+"""Tests for win_mcp_pro/tools/query.py — find / dump_tree / get_prop / get_patterns.
 
 The UIA layer is a fake shipped inline (no Windows, no `uiautomation` needed).
 The fake records every traversal hop so the tests can prove the search is
@@ -7,7 +7,7 @@ chained one level at a time instead of a single deep search from the root.
 
 import pytest
 
-from tools import query
+from win_mcp_pro.tools import query
 
 
 # --------------------------------------------------------------------------
@@ -380,7 +380,7 @@ def test_handlers_accept_mapping_params(fake_uia):
 
 def test_register_publishes_control_to_act_layer(fake_uia):
     """A find id must work in invoke/toggle/... without a second walk."""
-    from tools import patterns
+    from win_mcp_pro.tools import patterns
 
     before = set(patterns.registered_ids())
     try:
@@ -398,7 +398,7 @@ def test_register_publishes_control_to_act_layer(fake_uia):
 
 def test_lookup_accepts_snapshot_style_id(fake_uia, monkeypatch):
     """dump_tree/get_prop/get_patterns promise snapshot ids; seed one and prove it."""
-    from tools import patterns
+    from win_mcp_pro.tools import patterns
 
     control = FakeControl(name="Text Editor", control_type="EditControl")
     monkeypatch.setattr(patterns, "_ELEMENTS", {"777:11,22": control})

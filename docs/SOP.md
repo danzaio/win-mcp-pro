@@ -24,7 +24,7 @@ If `import server` fails, the venv is incomplete. Redo `pip install -e ".[dev]"`
 The server is a foreground stdio process. The MCP client starts it, not you.
 
 ```
-.venv\Scripts\python -m server.main --tools list_windows,snapshot,find,dump_tree,get_prop,get_patterns
+.venv\Scripts\python -m win_mcp_pro.server.main --tools list_windows,snapshot,find,dump_tree,get_prop,get_patterns
 ```
 
 Flags: `--tools` and `--exclude-tools`, both comma-separated, both also accept the `--tools=a,b` form. Point the client at the **venv interpreter**, never a bare `python`:
@@ -34,7 +34,7 @@ Flags: `--tools` and `--exclude-tools`, both comma-separated, both also accept t
   "mcpServers": {
     "win-mcp-pro": {
       "command": "C:\\path\\to\\win-mcp-pro\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "server.main", "--tools", "list_windows,snapshot,find,dump_tree,get_prop,get_patterns"],
+      "args": ["-m", "win_mcp_pro.server.main", "--tools", "list_windows,snapshot,find,dump_tree,get_prop,get_patterns"],
       "cwd": "C:\\path\\to\\win-mcp-pro"
     }
   }
@@ -45,7 +45,7 @@ stdout is the JSON-RPC channel. Startup and tool-call metadata go to stderr as J
 
 ## Allowlist
 
-Two flags, comma-separated: `--tools a,b,c` (only these load) and `--exclude-tools x,y` (everything except these). Both also accept the `--tools=a,b` form. Enforcement lives in `server/security.py:enforce_filter`.
+Two flags, comma-separated: `--tools a,b,c` (only these load) and `--exclude-tools x,y` (everything except these). Both also accept the `--tools=a,b` form. Enforcement lives in `win_mcp_pro/server/security.py:enforce_filter`.
 
 Three rules that hold:
 

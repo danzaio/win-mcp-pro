@@ -78,7 +78,7 @@ The CI threshold is applied to the same fake-client result. It does not gate a l
 Start the server with the read-only tool allowlist. It sits in the foreground and speaks stdio; startup and call metadata go to stderr.
 
 ```
-> .venv\Scripts\python -m server.main --tools list_windows,snapshot,find,dump_tree,get_prop,get_patterns
+> .venv\Scripts\python -m win_mcp_pro.server.main --tools list_windows,snapshot,find,dump_tree,get_prop,get_patterns
 ```
 
 Expected, on stderr, one JSON line:
