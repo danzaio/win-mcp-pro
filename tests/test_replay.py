@@ -131,3 +131,23 @@ def test_replay_tool_surface():
     for tool in replay.TOOLS:
         assert tool["description"].strip()
         assert callable(tool["handler"])
+
+def test_replay_runs_keyword_only_handlers(fake_tools):
+    """Real tools such as set_value/invoke/snapshot take keywords, not one dict."""
+    seen = []
+
+    def keyword_only(id, value=""):
+        seen.append((id, value))
+        return {"ok": True, "id": id}
+
+    tools.TOOL_REGISTRY.append(
+        {"name": "fake_keyword", "description": "fake", "schema": object, "handler": keyword_only}
+    )
+    result = replay.handler_replay({
+        "steps": [
+            {"tool": "fake_find", "args": {}, "expect": {"ok": True}},
+            {"tool": "fake_keyword", "args": {"id": "@id:0", "value": "x"}, "expect": {"ok": True}},
+        ],
+    })
+    assert result["ok"] is True, result
+    assert seen == [("W:42,7", "x")]

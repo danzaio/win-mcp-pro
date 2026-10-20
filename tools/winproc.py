@@ -157,110 +157,46 @@ class _PROCESS_INFORMATION(ctypes.Structure):
 
 _WNDENUMPROC = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
 
-_user32 = _kernel32 = _advapi32 = _ntdll = _shell32 = _dwmapi = None
+_user32 = _kernel32 = _shell32 = None
+
+
+def _bind(dll, name: str, restype, *argtypes) -> None:
+    """Declare one Win32 prototype so 64-bit handles are never cut to a C int."""
+    function = getattr(dll, name)
+    function.restype = restype
+    function.argtypes = list(argtypes)
+
 
 if _IS_WINDOWS:
     _user32 = ctypes.WinDLL("user32", use_last_error=True)
     _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    _advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
-    _ntdll = ctypes.WinDLL("ntdll", use_last_error=True)
     _shell32 = ctypes.WinDLL("shell32", use_last_error=True)
-    try:  # dwmapi is present since Vista; stay import-safe if it is not
-        _dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
-    except OSError:  # pragma: no cover - defensive
-        _dwmapi = None
 
-    # user32
-    _user32.EnumWindows.argtypes = [_WNDENUMPROC, wt.LPARAM]
-    _user32.EnumWindows.restype = wt.BOOL
-    _user32.IsWindow.argtypes = [wt.HWND]
-    _user32.IsWindow.restype = wt.BOOL
-    _user32.IsWindowVisible.argtypes = [wt.HWND]
-    _user32.IsWindowVisible.restype = wt.BOOL
-    _user32.IsZoomed.argtypes = [wt.HWND]
-    _user32.IsZoomed.restype = wt.BOOL
-    _user32.GetWindowTextW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
-    _user32.GetWindowTextW.restype = ctypes.c_int
-    _user32.GetClassNameW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
-    _user32.GetClassNameW.restype = ctypes.c_int
-    _user32.GetWindowRect.argtypes = [wt.HWND, ctypes.POINTER(_RECT)]
-    _user32.GetWindowRect.restype = wt.BOOL
-    _user32.SetWindowPos.argtypes = [wt.HWND, wt.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wt.UINT]
-    _user32.SetWindowPos.restype = wt.BOOL
-    _user32.ShowWindow.argtypes = [wt.HWND, ctypes.c_int]
-    _user32.ShowWindow.restype = wt.BOOL
-    _user32.MonitorFromWindow.argtypes = [wt.HWND, wt.DWORD]
-    _user32.MonitorFromWindow.restype = wt.HANDLE
-    _user32.GetMonitorInfoW.argtypes = [wt.HANDLE, ctypes.POINTER(_MONITORINFO)]
-    _user32.GetMonitorInfoW.restype = wt.BOOL
-    _user32.GetWindowThreadProcessId.argtypes = [wt.HWND, ctypes.POINTER(wt.DWORD)]
-    _user32.GetWindowThreadProcessId.restype = wt.DWORD
-    if _dwmapi is not None:
-        _dwmapi.DwmGetWindowAttribute.argtypes = [wt.HWND, wt.DWORD, wt.LPVOID, wt.DWORD]
-        _dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
+    _bind(_user32, "EnumWindows", wt.BOOL, _WNDENUMPROC, wt.LPARAM)
+    _bind(_user32, "GetWindowTextLengthW", ctypes.c_int, wt.HWND)
+    _bind(_user32, "GetWindowTextW", ctypes.c_int, wt.HWND, wt.LPWSTR, ctypes.c_int)
+    _bind(_user32, "GetWindowThreadProcessId", wt.DWORD, wt.HWND, ctypes.POINTER(wt.DWORD))
+    _bind(_user32, "IsWindow", wt.BOOL, wt.HWND)
+    _bind(_user32, "IsWindowVisible", wt.BOOL, wt.HWND)
+    _bind(_user32, "GetForegroundWindow", wt.HWND)
+    _bind(_user32, "SetWindowPos", wt.BOOL, wt.HWND, wt.HWND, ctypes.c_int, ctypes.c_int,
+          ctypes.c_int, ctypes.c_int, wt.UINT)
+    _bind(_user32, "ShowWindow", wt.BOOL, wt.HWND, ctypes.c_int)
+    _bind(_user32, "PostMessageW", wt.BOOL, wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM)
+    _bind(_user32, "MonitorFromWindow", wt.HANDLE, wt.HWND, wt.DWORD)
+    _bind(_user32, "GetMonitorInfoW", wt.BOOL, wt.HANDLE, ctypes.POINTER(_MONITORINFO))
 
-    # kernel32
-    _kernel32.OpenProcess.argtypes = [wt.DWORD, wt.BOOL, wt.DWORD]
-    _kernel32.OpenProcess.restype = wt.HANDLE
-    _kernel32.CloseHandle.argtypes = [wt.HANDLE]
-    _kernel32.CloseHandle.restype = wt.BOOL
-    _kernel32.QueryFullProcessImageNameW.argtypes = [wt.HANDLE, wt.DWORD, wt.LPWSTR, ctypes.POINTER(wt.DWORD)]
-    _kernel32.QueryFullProcessImageNameW.restype = wt.BOOL
-    _kernel32.IsWow64Process.argtypes = [wt.HANDLE, ctypes.POINTER(wt.BOOL)]
-    _kernel32.IsWow64Process.restype = wt.BOOL
-    _kernel32.ReadProcessMemory.argtypes = [
-        wt.HANDLE,
-        ctypes.c_void_p,
-        wt.LPVOID,
-        ctypes.c_size_t,
-        ctypes.POINTER(ctypes.c_size_t),
-    ]
-    _kernel32.ReadProcessMemory.restype = wt.BOOL
-    _kernel32.CreateToolhelp32Snapshot.argtypes = [wt.DWORD, wt.DWORD]
-    _kernel32.CreateToolhelp32Snapshot.restype = wt.HANDLE
-    _kernel32.Process32FirstW.argtypes = [wt.HANDLE, ctypes.POINTER(_PROCESSENTRY32W)]
-    _kernel32.Process32FirstW.restype = wt.BOOL
-    _kernel32.Process32NextW.argtypes = [wt.HANDLE, ctypes.POINTER(_PROCESSENTRY32W)]
-    _kernel32.Process32NextW.restype = wt.BOOL
-    _kernel32.TerminateProcess.argtypes = [wt.HANDLE, wt.UINT]
-    _kernel32.TerminateProcess.restype = wt.BOOL
-    _kernel32.SearchPathW.argtypes = [wt.LPCWSTR, wt.LPCWSTR, wt.LPCWSTR, wt.DWORD, wt.LPWSTR, ctypes.POINTER(wt.LPWSTR)]
-    _kernel32.SearchPathW.restype = wt.DWORD
-    _kernel32.CreateProcessW.argtypes = [
-        wt.LPWSTR,
-        wt.LPWSTR,
-        wt.LPVOID,
-        wt.LPVOID,
-        wt.BOOL,
-        wt.DWORD,
-        wt.LPVOID,
-        wt.LPCWSTR,
-        ctypes.POINTER(_STARTUPINFOW),
-        ctypes.POINTER(_PROCESS_INFORMATION),
-    ]
-    _kernel32.CreateProcessW.restype = wt.BOOL
-
-    # advapi32 / ntdll / shell32
-    _advapi32.OpenProcessToken.argtypes = [wt.HANDLE, wt.DWORD, ctypes.POINTER(wt.HANDLE)]
-    _advapi32.OpenProcessToken.restype = wt.BOOL
-    _advapi32.GetTokenInformation.argtypes = [
-        wt.HANDLE,
-        wt.DWORD,
-        wt.LPVOID,
-        wt.DWORD,
-        ctypes.POINTER(wt.DWORD),
-    ]
-    _advapi32.GetTokenInformation.restype = wt.BOOL
-    _ntdll.NtQueryInformationProcess.argtypes = [
-        wt.HANDLE,
-        wt.DWORD,
-        ctypes.c_void_p,
-        wt.DWORD,
-        ctypes.POINTER(ctypes.c_ulong),
-    ]
-    _ntdll.NtQueryInformationProcess.restype = ctypes.c_long
-    _shell32.ShellExecuteW.argtypes = [wt.HWND, wt.LPCWSTR, wt.LPCWSTR, wt.LPCWSTR, wt.LPCWSTR, ctypes.c_int]
-    _shell32.ShellExecuteW.restype = wt.HANDLE
+    _bind(_kernel32, "CloseHandle", wt.BOOL, wt.HANDLE)
+    _bind(_kernel32, "CreateToolhelp32Snapshot", wt.HANDLE, wt.DWORD, wt.DWORD)
+    _bind(_kernel32, "Process32FirstW", wt.BOOL, wt.HANDLE, ctypes.POINTER(_PROCESSENTRY32W))
+    _bind(_kernel32, "Process32NextW", wt.BOOL, wt.HANDLE, ctypes.POINTER(_PROCESSENTRY32W))
+    _bind(_kernel32, "SearchPathW", wt.DWORD, wt.LPCWSTR, wt.LPCWSTR, wt.LPCWSTR, wt.DWORD,
+          wt.LPWSTR, ctypes.POINTER(wt.LPWSTR))
+    _bind(_kernel32, "CreateProcessW", wt.BOOL, wt.LPCWSTR, wt.LPWSTR, wt.LPVOID, wt.LPVOID,
+          wt.BOOL, wt.DWORD, wt.LPVOID, wt.LPCWSTR, ctypes.POINTER(_STARTUPINFOW),
+          ctypes.POINTER(_PROCESS_INFORMATION))
+    _bind(_shell32, "ShellExecuteW", ctypes.c_size_t, wt.HWND, wt.LPCWSTR, wt.LPCWSTR,
+          wt.LPCWSTR, wt.LPCWSTR, ctypes.c_int)
 
 
 def _need_windows() -> None:
@@ -406,16 +342,6 @@ class ExcludeProcArgs(BaseModel):
 # ---------------------------------------------------------------------------
 import subprocess as _subprocess
 
-_kernel32 = ctypes.WinDLL("kernel32", use_last_error=True) if _IS_WINDOWS else None
-_user32 = ctypes.WinDLL("user32", use_last_error=True) if _IS_WINDOWS else None
-_advapi32 = ctypes.WinDLL("advapi32", use_last_error=True) if _IS_WINDOWS else None
-_ntdll = ctypes.WinDLL("ntdll", use_last_error=True) if _IS_WINDOWS else None
-_shell32 = ctypes.WinDLL("shell32", use_last_error=True) if _IS_WINDOWS else None
-
-# Keep EnumWindows callbacks alive: a GC'd WINFUNCTYPE crashes the walk.
-_enum_callback_refs: list = []
-
-
 def _process_snapshot() -> list[dict]:
     """[{pid, ppid, exe}] via Toolhelp32 (dwSize reset before every Next)."""
     _need_windows()
@@ -446,9 +372,7 @@ def _enum_windows_real() -> list[tuple[int, str, int, bool]]:
     _need_windows()
     found: list[tuple[int, str, int, bool]] = []
 
-    _CbType = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
-
-    @_CbType
+    @_WNDENUMPROC
     def _cb(hwnd, _param):  # noqa: ANN001, ANN202
         try:
             length = _user32.GetWindowTextLengthW(hwnd)
@@ -468,7 +392,6 @@ def _enum_windows_real() -> list[tuple[int, str, int, bool]]:
             pass
         return True
 
-    _enum_callback_refs.append(_cb)
     try:
         _user32.EnumWindows(_cb, 0)
     except Exception:  # noqa: BLE001
@@ -506,8 +429,8 @@ def _create_process(path: str, cmdline: str, cwd: str | None, show_cmd: int) -> 
     si.wShowWindow = show_cmd
     pi = _PROCESS_INFORMATION()
     ok = _kernel32.CreateProcessW(
-        path, cmdline, None, None, False, _CREATE_UNICODE_ENVIRONMENT,
-        None, cwd, ctypes.byref(si), ctypes.byref(pi),
+        path, ctypes.create_unicode_buffer(cmdline), None, None, False,
+        _CREATE_UNICODE_ENVIRONMENT, None, cwd, ctypes.byref(si), ctypes.byref(pi),
     )
     if not ok:
         raise WinProcError("LAUNCH_FAILED", f"CreateProcess failed: {_win32_message()}")
@@ -573,10 +496,18 @@ def h_win_move(args: Any) -> dict:
     return {"ok": True, "hwnd": m.hwnd, "x": m.x, "y": m.y}
 
 
-def _work_area() -> tuple[int, int, int, int]:
-    rect = _RECT()
-    _user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0)
-    return (rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top)
+_MONITOR_DEFAULTTONEAREST = 2
+
+
+def _work_area(hwnd: int) -> tuple[int, int, int, int]:
+    """(x, y, w, h) of the work area of the monitor that holds ``hwnd``."""
+    monitor = _user32.MonitorFromWindow(hwnd, _MONITOR_DEFAULTTONEAREST)
+    info = _MONITORINFO()
+    info.cbSize = ctypes.sizeof(info)
+    if not monitor or not _user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+        raise WinProcError("MONITOR_UNKNOWN", f"no monitor for hwnd {hwnd}: {_win32_message()}")
+    work = info.rcWork
+    return (work.left, work.top, work.right - work.left, work.bottom - work.top)
 
 
 def h_win_resize(args: Any) -> dict:
@@ -607,7 +538,7 @@ def h_win_restore(args: Any) -> dict:
 def h_win_snap(args: Any) -> dict:
     m = _args(WinSnapArgs, args)
     _require_window(m.hwnd)
-    x, y, w, h = _snap_rect(_work_area(), m.side)
+    x, y, w, h = _snap_rect(_work_area(m.hwnd), m.side)
     _user32.SetWindowPos(m.hwnd, _HWND_TOP, x, y, w, h, _SWP_NOZORDER)
     return {"ok": True, "hwnd": m.hwnd, "side": m.side, "rect": [x, y, w, h]}
 

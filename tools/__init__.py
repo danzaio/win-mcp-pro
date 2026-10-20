@@ -22,6 +22,7 @@ ordered list of normalized dicts. Order is registration order, never sorted.
 from __future__ import annotations
 
 import importlib
+import inspect
 import pkgutil
 from collections.abc import Iterable
 from typing import Any, Callable, TypedDict
@@ -36,6 +37,7 @@ __all__ = [
     "register_module",
     "json_schema",
     "get",
+    "call_handler",
     "names",
     "clear",
     "load_all_modules",
@@ -203,6 +205,28 @@ def names() -> list[str]:
 def clear() -> None:
     """Drop every registration (tests do this between cases)."""
     TOOL_REGISTRY.clear()
+
+
+def call_handler(handler: Callable[..., Any], arguments: dict) -> Any:
+    """Invoke a tool handler with ``arguments``, whatever its signature.
+
+    Handlers either take the arguments as keywords or as one positional dict.
+    The call is bound before it runs, so a ``TypeError`` raised *inside* a
+    handler can never trigger a second invocation of a side-effecting tool.
+    """
+    try:
+        signature = inspect.signature(handler)
+    except (ValueError, TypeError):
+        return handler(**arguments)
+    try:
+        signature.bind(**arguments)
+    except TypeError as kwargs_error:
+        try:
+            signature.bind(arguments)
+        except TypeError:
+            raise kwargs_error from None
+        return handler(arguments)
+    return handler(**arguments)
 
 
 def load_all_modules() -> list[str]:

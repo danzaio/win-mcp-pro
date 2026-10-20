@@ -12,23 +12,8 @@ crashing or hanging handler is contained by the parent's deadline and kill.
 """
 from __future__ import annotations
 
-import inspect
 import json
 import sys
-from typing import Any, Callable
-
-
-def _call(handler: Callable[..., Any], args: dict) -> Any:
-    """Invoke a registry handler regardless of its calling convention."""
-    try:
-        signature = inspect.signature(handler)
-    except (TypeError, ValueError):
-        return handler(**args)
-    try:
-        signature.bind(**args)
-    except TypeError:
-        return handler(args)
-    return handler(**args)
 
 
 def _dispatch(name: str, args: dict) -> object:
@@ -40,7 +25,7 @@ def _dispatch(name: str, args: dict) -> object:
     if entry is None:
         return {"ok": False, "error": "UNKNOWN_TOOL", "reason": str(name)}
     try:
-        reply = _call(entry["handler"], dict(args or {}))
+        reply = tools.call_handler(entry["handler"], dict(args or {}))
     except Exception as exc:  # a blown-up walk is data for the caller
         return {"ok": False, "error": type(exc).__name__, "reason": str(exc)[:300]}
     dump = getattr(reply, "model_dump", None)

@@ -83,18 +83,14 @@ def _extract_id(result: Any) -> str | None:
     return None
 
 
-def _tool_entry(name: str) -> dict | None:
+def handler_replay(args: Any) -> dict:
     import tools as tools_pkg
 
-    return tools_pkg.get(name)
-
-
-def handler_replay(args: Any) -> dict:
     m = ReplayArgs(**dict(args or {}))
     ids: list[str | None] = []
     records: list[dict] = []
     for index, step in enumerate(m.steps):
-        entry = _tool_entry(step.tool)
+        entry = tools_pkg.get(step.tool)
         if entry is None:
             return {"ok": False, "error": "UNKNOWN_TOOL", "step": index,
                     "tool": step.tool, "records": records}
@@ -104,7 +100,7 @@ def handler_replay(args: Any) -> dict:
             return {"ok": False, "error": "AMBIGUOUS_ID", "step": index,
                     "tool": step.tool, "reason": str(exc), "records": records}
         try:
-            result = entry["handler"](call_args)
+            result = tools_pkg.call_handler(entry["handler"], call_args)
         except Exception as exc:  # noqa: BLE001 - a blowing-up step is data
             return {"ok": False, "error": "STEP_FAILED", "step": index,
                     "tool": step.tool,

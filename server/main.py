@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import inspect
 import json
 import sys
 from typing import Any
@@ -24,34 +23,12 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from pydantic import BaseModel
 
+from tools import call_handler as _call_handler
+
 from . import registry
 from .audit import audit
 
 __all__ = ["build_server", "run_stdio_server", "main"]
-
-
-def _call_handler(handler: Any, arguments: dict) -> Any:
-    """Invoke a tool handler regardless of its calling convention.
-
-    Canonical handlers take ``**arguments``. The winproc/vision/compat
-    slices take a single positional dict instead. Bind the call before
-    invoking it so a TypeError raised inside a handler cannot cause a
-    second invocation of a side-effecting tool.
-    """
-    try:
-        signature = inspect.signature(handler)
-    except (ValueError, TypeError):
-        return handler(**arguments)
-
-    try:
-        signature.bind(**arguments)
-    except TypeError as kwargs_error:
-        try:
-            signature.bind(arguments)
-        except TypeError:
-            raise kwargs_error
-        return handler(arguments)
-    return handler(**arguments)
 
 
 def _enable_dpi_awareness() -> None:
