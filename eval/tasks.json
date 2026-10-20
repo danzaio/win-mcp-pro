@@ -13,7 +13,12 @@
       ],
       "expect": {
         "setup": [
-          { "tool": "app_launch", "args": { "name": "notepad" } }
+          {
+            "tool": "app_launch",
+            "args": {
+              "name": "notepad"
+            }
+          }
         ],
         "tool": "list_windows",
         "args": {},
@@ -32,12 +37,31 @@
       ],
       "expect": {
         "setup": [
-          { "tool": "app_launch", "args": { "name": "notepad" } },
-          { "tool": "find", "args": { "name": "Text Editor", "class_name": "Edit" } },
-          { "tool": "set_value", "args": { "id": "@np:edit", "text": "hello from win-mcp-pro" } }
+          {
+            "tool": "app_launch",
+            "args": {
+              "name": "notepad"
+            }
+          },
+          {
+            "tool": "find",
+            "args": {
+              "name": "Text Editor",
+              "class_name": "Edit"
+            }
+          },
+          {
+            "tool": "set_value",
+            "args": {
+              "id": "@np:edit",
+              "text": "hello from win-mcp-pro"
+            }
+          }
         ],
         "tool": "get_value",
-        "args": { "id": "@np:edit" },
+        "args": {
+          "id": "@np:edit"
+        },
         "check": "equals",
         "value": "hello from win-mcp-pro"
       }
@@ -53,11 +77,27 @@
       ],
       "expect": {
         "setup": [
-          { "tool": "menu_click", "args": { "path": ["File", "Save As..."] } },
-          { "tool": "find", "args": { "name": "Save As" } }
+          {
+            "tool": "menu_click",
+            "args": {
+              "path": [
+                "File",
+                "Save As..."
+              ]
+            }
+          },
+          {
+            "tool": "find",
+            "args": {
+              "name": "Save As"
+            }
+          }
         ],
         "tool": "get_prop",
-        "args": { "id": "@np:saveas", "prop": "Name" },
+        "args": {
+          "id": "@np:saveas",
+          "prop": "Name"
+        },
         "check": "equals",
         "value": "Save As"
       }
@@ -72,7 +112,12 @@
       ],
       "expect": {
         "setup": [
-          { "tool": "app_launch", "args": { "name": "calc" } }
+          {
+            "tool": "app_launch",
+            "args": {
+              "name": "calc"
+            }
+          }
         ],
         "tool": "list_windows",
         "args": {},
@@ -91,12 +136,30 @@
       ],
       "expect": {
         "setup": [
-          { "tool": "app_launch", "args": { "name": "calc" } },
-          { "tool": "find", "args": { "automation_id": "CalculatorResults" } },
-          { "tool": "set_value", "args": { "id": "@calc:display", "text": "7*6=" } }
+          {
+            "tool": "app_launch",
+            "args": {
+              "name": "calc"
+            }
+          },
+          {
+            "tool": "find",
+            "args": {
+              "automation_id": "CalculatorResults"
+            }
+          },
+          {
+            "tool": "set_value",
+            "args": {
+              "id": "@calc:display",
+              "text": "7*6="
+            }
+          }
         ],
         "tool": "get_value",
-        "args": { "id": "@calc:display" },
+        "args": {
+          "id": "@calc:display"
+        },
         "check": "equals",
         "value": "42"
       }
@@ -111,10 +174,20 @@
       ],
       "expect": {
         "setup": [
-          { "tool": "menu_click", "args": { "path": ["History"] } }
+          {
+            "tool": "menu_click",
+            "args": {
+              "path": [
+                "History"
+              ]
+            }
+          }
         ],
         "tool": "dump_tree",
-        "args": { "id": "@calc:win", "depth": 2 },
+        "args": {
+          "id": "@calc:win",
+          "depth": 2
+        },
         "check": "contains",
         "value": "History"
       }
@@ -129,7 +202,15 @@
       ],
       "expect": {
         "setup": [
-          { "tool": "app_launch", "args": { "name": "explorer", "argv": ["C:\\Users\\Public"] } }
+          {
+            "tool": "app_launch",
+            "args": {
+              "name": "explorer",
+              "argv": [
+                "C:\\Users\\Public"
+              ]
+            }
+          }
         ],
         "tool": "list_windows",
         "args": {},
@@ -148,11 +229,25 @@
       ],
       "expect": {
         "setup": [
-          { "tool": "find", "args": { "name": "Documents", "kind": "ListItem" } },
-          { "tool": "invoke", "args": { "id": "@exp:documents" } }
+          {
+            "tool": "find",
+            "args": {
+              "name": "Documents",
+              "kind": "ListItem"
+            }
+          },
+          {
+            "tool": "invoke",
+            "args": {
+              "id": "@exp:documents"
+            }
+          }
         ],
         "tool": "get_prop",
-        "args": { "id": "@exp:win", "prop": "Name" },
+        "args": {
+          "id": "@exp:win",
+          "prop": "Name"
+        },
         "check": "equals",
         "value": "Documents"
       }
@@ -167,10 +262,21 @@
       ],
       "expect": {
         "setup": [
-          { "tool": "app_launch", "args": { "name": "explorer", "argv": ["ms-settings:bluetooth"] } }
+          {
+            "tool": "app_launch",
+            "args": {
+              "name": "explorer",
+              "argv": [
+                "ms-settings:bluetooth"
+              ]
+            }
+          }
         ],
         "tool": "get_prop",
-        "args": { "id": "@set:win", "prop": "Name" },
+        "args": {
+          "id": "@set:win",
+          "prop": "Name"
+        },
         "check": "contains",
         "value": "Bluetooth"
       }
@@ -186,49 +292,27 @@
       ],
       "expect": {
         "setup": [
-          { "tool": "find", "args": { "name": "Wi-Fi", "kind": "Button" } },
-          { "tool": "toggle", "args": { "id": "@set:wifi" } }
+          {
+            "tool": "find",
+            "args": {
+              "name": "Wi-Fi",
+              "kind": "Button"
+            }
+          },
+          {
+            "tool": "toggle",
+            "args": {
+              "id": "@set:wifi"
+            }
+          }
         ],
         "tool": "get_prop",
-        "args": { "id": "@set:wifi", "prop": "ToggleState" },
+        "args": {
+          "id": "@set:wifi",
+          "prop": "ToggleState"
+        },
         "check": "equals",
         "value": "On"
-      }
-    },
-    {
-      "id": "chrome-dom-01-read-page-heading",
-      "app": "chrome-dom",
-      "goal": "Read a page through the DOM path (never desktop clicks on web content) and confirm the heading.",
-      "steps_hint": [
-        "scrape_dom(url_hint='https://example.com')"
-      ],
-      "expect": {
-        "setup": [
-          { "tool": "scrape_dom", "args": { "url_hint": "https://example.com" } }
-        ],
-        "tool": "scrape_dom",
-        "args": { "url_hint": "https://example.com" },
-        "check": "contains",
-        "value": "Example Domain"
-      }
-    },
-    {
-      "id": "chrome-dom-02-locate-submit-button",
-      "app": "chrome-dom",
-      "goal": "Locate the login submit button in the DOM by id before any act step.",
-      "steps_hint": [
-        "scrape_dom(url_hint='https://example.com/login')",
-        "find the element whose id is login-submit in the returned DOM"
-      ],
-      "expect": {
-        "setup": [
-          { "tool": "scrape_dom", "args": { "url_hint": "https://example.com/login" } }
-        ],
-        "tool": "scrape_dom",
-        "args": { "url_hint": "https://example.com/login" },
-        "check": "matches",
-        "regex": "id=\"login-submit\"",
-        "value": "<button id=\"login-submit\">Sign in</button>"
       }
     }
   ]

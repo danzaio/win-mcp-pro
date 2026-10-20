@@ -41,7 +41,7 @@ ALLOWED = ("list_windows,snapshot,find,get_prop,set_value,invoke,zoom,click,"
            "menu_click,form_fill,table_extract,choose_file,displays,"
            "img_convert,code_goto,win_close,win_topmost,focus,"
            "win_min,win_restore,shortcut,idle_time,get_active_window,"
-           "open_default,type_text,key_hold,win_shot,color_at,env_get,"
+           "open_default,type_text,key_hold,win_shot,color_at,"
            "get_value")
 
 
@@ -960,13 +960,6 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         assert (pixel["r"], pixel["g"], pixel["b"]) == (255, 255, 255), pixel
                         return "color_at read the white input box"
 
-                    async def t33():
-                        path_value = await call("env_get", {"name": "PATH"})
-                        assert path_value["ok"], path_value
-                        assert path_value["present"] is True, path_value
-                        assert path_value["value"], path_value
-                        return "env_get read PATH"
-
                     all_tasks = [
                         ("T01", "find target window (identity)", t01),
                         ("T02", "set_value + oracle readback", t02),
@@ -1000,7 +993,6 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         ("T30", "stepped drag moves window", t30),
                         ("T31", "win_shot file + frame", t31),
                         ("T32", "color_at white input", t32),
-                        ("T33", "env_get PATH", t33),
                     ]
                     for tid, desc, fn in all_tasks:
                         if only and tid not in only:

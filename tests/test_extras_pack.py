@@ -2,7 +2,7 @@
 
 ``idle_time`` / ``type_text`` / ``key_hold`` / stepped drag (tools.compat),
 ``get_active_window`` / ``open_default`` (tools.winproc), ``win_shot`` /
-``color_at`` (tools.vision) and ``env_get`` (tools.system). Seams keep every
+``color_at`` (tools.vision). Seams keep every
 test headless: no screen, no SendInput, no launched apps.
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from tools import compat, query, system as sysmod, vision, winproc
+from tools import compat, query, vision, winproc
 
 
 @pytest.fixture(autouse=True)
@@ -265,17 +265,3 @@ def test_color_at_outside_display_is_typed(monkeypatch):
                                            {"left": 0, "top": 0}))
     result = vision.handler_color_at({"x": 50, "y": 50})
     assert result["ok"] is False and result["error"] == "OUT_OF_RANGE", result
-
-
-# --- env_get ----------------------------------------------------------------
-
-
-def test_env_get_reads_present_and_missing(monkeypatch):
-    monkeypatch.setenv("WINMCP_PACK_PROBE", "hello")
-    monkeypatch.delenv("WINMCP_PACK_ABSENT", raising=False)
-    tool = next(t for t in sysmod.TOOLS if t["name"] == "env_get")
-    hit = tool["handler"](tool["schema"](name="WINMCP_PACK_PROBE"))
-    assert hit == {"ok": True, "name": "WINMCP_PACK_PROBE",
-                   "value": "hello", "present": True}, hit
-    miss = tool["handler"](tool["schema"](name="WINMCP_PACK_ABSENT"))
-    assert miss["present"] is False and miss["value"] is None, miss

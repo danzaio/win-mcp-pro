@@ -332,7 +332,6 @@ SMOKE_RESULTS: dict[str, Any] = {
     "invoke": {"ok": True},
     "toggle": {"ok": True},
     "scroll_into_view": {"ok": True},
-    "scrape_dom": {"dom": "<h1>Example Domain</h1><button id=\"login-submit\">Sign in</button>"},
     "wait": {"ok": True},
     "wait_text": {"ok": True},
 }

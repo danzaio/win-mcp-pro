@@ -1,7 +1,6 @@
 """Doctor (Phase E): one call that reports whether this machine can run the toolset.
 
-Checks the interpreter, the importability of each runtime dependency, whether
-a Chromium browser was found for the isolated ``browser_*`` tools, which OCR
+Checks the interpreter, the importability of each runtime dependency, which OCR
 languages are installed for ``ocr_read``, and whether the UIA root control is
 reachable. Each check reads through a seam so tests can pin the report
 without a real environment; the handler itself never raises.
@@ -15,7 +14,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 #: Runtime dependencies the tools load lazily.
-_MODULES = ("uiautomation", "comtypes", "mss", "PIL", "winsdk", "websocket")
+_MODULES = ("uiautomation", "comtypes", "mss", "PIL", "winsdk")
 
 
 class DoctorArgs(BaseModel):
@@ -28,12 +27,6 @@ def _module_ok(name: str) -> tuple[bool, str]:
         return True, "imported"
     except Exception as exc:  # noqa: BLE001 - import failure is the report
         return False, "%s: %s" % (type(exc).__name__, str(exc)[:120])
-
-
-def _browser_path() -> str | None:
-    from tools import browser
-
-    return browser._find_browser()
 
 
 def _ocr_languages() -> list[str]:
@@ -66,9 +59,6 @@ def handler_doctor(args: Any) -> dict:
     for module in _MODULES:
         ok, detail = _module_ok(module)
         checks.append({"name": "module:%s" % module, "ok": ok, "detail": detail})
-    browser = _browser_path()
-    checks.append({"name": "browser", "ok": bool(browser),
-                   "detail": browser or "no Edge/Chrome found"})
     languages = _ocr_languages()
     checks.append({"name": "ocr_languages", "ok": bool(languages),
                    "detail": ", ".join(languages) or "none installed"})
@@ -87,7 +77,7 @@ def _tool(name: str, description: str, schema, handler) -> dict:
 TOOLS = [
     _tool("doctor",
           "Report whether this machine can run the toolset: interpreter, "
-          "runtime dependencies, Chromium for the browser tools, installed "
+          "runtime dependencies, installed "
           "OCR languages and UIA reachability - one JSON report.",
           DoctorArgs, handler_doctor),
 ]
