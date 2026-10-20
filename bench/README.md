@@ -5,7 +5,7 @@
 ```
 
 Spawns disposable fixtures and the MCP server over stdio, then runs 28
-deterministic tasks. Every observable effect is written by the fixture
+tasks. Every observable effect is written by the fixture
 process itself to a JSONL log; the runner asserts against those logs (the
 external oracle), so a green run means the effect happened in the
 application, not just that the server replied `ok`. A decoy fixture's log
@@ -31,10 +31,13 @@ refused missing path), type_text, key_hold, a stepped drag, win_shot.
 
 Run it on an idle desktop: it moves the real cursor and asserts effects on
 its own windows; concurrent physical mouse activity can disrupt a synthetic
-click.
+click. Timing checks (the double-click gap, for one) are read from the
+fixture's own log, which lags on a loaded machine, so rerun a failing task
+with `--only` before treating it as a product bug.
 
-Results land in `bench/results/bench-<stamp>.{json,md}`; the exit code is
-non-zero if any task fails. `--only T01,T06` runs a subset while debugging.
+Results land in `bench/results/bench-<stamp>.{json,md}`. They are
+machine-specific and git-ignored. The exit code is non-zero if any task
+fails. `--only T01,T06` runs a subset while debugging.
 
 ## What it caught
 
