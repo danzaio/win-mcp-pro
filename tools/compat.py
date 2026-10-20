@@ -186,12 +186,64 @@ class CursorPositionArgs(BaseModel):
     pass
 
 
+class IdleTimeArgs(BaseModel):
+    pass
+
+
+#: Hard cap: typing is keystrokes, not bulk transfer (paste_text covers that).
+TYPE_TEXT_MAX = 512
+
+
+def _check_single_key(value: Any) -> str:
+    text = _check_keys(value)
+    if "+" in text:
+        raise ValueError("hold one key at a time, not a chord")
+    return text
+
+
+class TypeTextArgs(BaseModel):
+    text: str = Field(min_length=1, max_length=TYPE_TEXT_MAX)
+    target: str | None = Field(
+        default=None,
+        description="Element id whose window must receive the keystrokes; "
+                    "required in the safe profile.",
+    )
+    activate: bool = Field(
+        default=True,
+        description="Bring the target window to the foreground first when "
+                    "needed; refusal when that cannot be confirmed.",
+    )
+
+
+class KeyHoldArgs(BaseModel):
+    key: str
+    ms: int = Field(default=500, ge=0, le=10_000)
+    target: str | None = Field(
+        default=None,
+        description="Element id whose window must receive the key; required "
+                    "in the safe profile.",
+    )
+    activate: bool = Field(
+        default=True,
+        description="Bring the target window to the foreground first when "
+                    "needed; refusal when that cannot be confirmed.",
+    )
+
+    _key = field_validator("key", mode="before")(_check_single_key)
+
+
 class MoveArgs(BaseModel):
     x: float
     y: float
     drag: bool = False
     from_x: float | None = None
     from_y: float | None = None
+    steps: int = Field(
+        default=1, ge=1, le=64,
+        description="Interpolated path points for a drag (1 = straight line). "
+                    "Stepped paths drop HTML5 drag-and-drop targets that ignore "
+                    "single-burst drags; plain moves always take 1.",
+    )
     target: str | None = Field(
         default=None,
         description="Element id this move/drag intends; required for drags in "
@@ -209,6 +261,12 @@ class MoveArgs(BaseModel):
     def _from_pair(self) -> "MoveArgs":
         if (self.from_x is None) != (self.from_y is None):
             raise ValueError("from_x and from_y go together")
+        return self
+
+    @model_validator(mode="after")
+    def _steps_need_drag(self) -> "MoveArgs":
+        if self.steps > 1 and not self.drag:
+            raise ValueError("steps > 1 needs drag=true")
         return self
 
 
@@ -285,6 +343,7 @@ MOUSEEVENTF_WHEEL = 0x0800
 MOUSEEVENTF_HWHEEL = 0x01000
 
 KEYEVENTF_KEYUP = 0x0002
+KEYEVENTF_UNICODE = 0x0004
 
 SM_XVIRTUALSCREEN = 76
 SM_YVIRTUALSCREEN = 77
@@ -374,8 +433,17 @@ def _to_input(event: dict) -> INPUT:
         return record
     if event["type"] == "key":
         record.type = INPUT_KEYBOARD
-        record.union.ki.wVk = event["vk"]
-        record.union.ki.dwFlags = KEYEVENTF_KEYUP if event["up"] else 0
+        if "scan" in event:
+            # KEYEVENTF_UNICODE keystroke: wVk stays 0, the UTF-16 unit rides
+            # in wScan (astral characters arrive as surrogate pairs).
+            record.union.ki.wVk = 0
+            record.union.ki.wScan = event["scan"] & 0xFFFF
+            record.union.ki.dwFlags = KEYEVENTF_UNICODE
+            if event["up"]:
+                record.union.ki.dwFlags |= KEYEVENTF_KEYUP
+        else:
+            record.union.ki.wVk = event["vk"]
+            record.union.ki.dwFlags = KEYEVENTF_KEYUP if event["up"] else 0
         return record
     raise ValueError(f"unknown input type {event['type']!r}")  # pragma: no cover
 
@@ -806,10 +874,14 @@ def _tool_move(args: MoveArgs) -> dict:
     events.append({"type": "mouse", "action": "move",
                    "x": start_point[0], "y": start_point[1]})
     events.append({"type": "mouse", "action": "down", "button": "left"})
-    events.append({"type": "mouse", "action": "move", "x": point[0], "y": point[1]})
+    for step in range(1, args.steps + 1):
+        fraction = step / args.steps
+        events.append({"type": "mouse", "action": "move",
+                       "x": start_point[0] + (point[0] - start_point[0]) * fraction,
+                       "y": start_point[1] + (point[1] - start_point[1]) * fraction})
     events.append({"type": "mouse", "action": "up", "button": "left"})
     _send_input(events)
-    return {"ok": True}
+    return {"ok": True, "steps": args.steps}
 
 
 def _tool_scroll(args: ScrollArgs) -> dict:
@@ -832,38 +904,84 @@ def _tool_scroll(args: ScrollArgs) -> dict:
     return result
 
 
-def _tool_shortcut(args: ShortcutArgs) -> dict:
-    activated = False
-    if args.target is not None:
-        control = _resolve_control(args.target)
+def _bind_window(target_id: str | None, activate: bool) -> tuple[dict | None, bool]:
+    """Shared keyboard-input binding: resolve, UIPI-check, maybe foreground.
+
+    Returns ``(refusal, activated)`` with the exact contract _tool_shortcut
+    has always honored; type_text and key_hold funnel through it so the
+    three keyboard tools cannot drift apart.
+    """
+    if target_id is not None:
+        control = _resolve_control(target_id)
         if control is None:
             return _refuse("TARGET_NOT_FOUND",
-                           f"target {args.target!r} does not resolve to a live element")
+                           f"target {target_id!r} does not resolve to a live element"), False
         info = _target_info(control)
         if info is None:
             return _refuse("TARGET_STALE",
-                           f"target {args.target!r} exposes no readable rectangle/process")
+                           f"target {target_id!r} exposes no readable rectangle/process"), False
         pid = info["pid"]
         verdict = _check_uipi(pid)
         if not verdict.get("ok"):
             return _refuse(str(verdict.get("code", "INTEGRITY_CHECK_FAILED")),
-                           str(verdict.get("detail", "integrity check failed")))
+                           str(verdict.get("detail", "integrity check failed"))), False
         if _foreground_pid() != pid:
-            if not args.activate:
+            if not activate:
                 return _refuse("ACTIVATION_FAILED",
                                f"target pid {pid} is not the foreground window "
-                               "and activate=false")
+                               "and activate=false"), False
             if not _activate_window(pid):
                 return _refuse("ACTIVATION_FAILED",
-                               f"could not bring target pid {pid} to the foreground")
-            activated = True
-    elif not _unrestricted():
+                               f"could not bring target pid {pid} to the foreground"), False
+            return None, True
+        return None, False
+    if not _unrestricted():
         return _refuse(
             "TARGET_REQUIRED",
             "keyboard input needs the target element id whose window should "
             "receive it (pass target=..., or start the server with "
             "--input-unrestricted)",
-        )
+        ), False
+    return None, False
+
+
+def _tick_ms() -> int:
+    """Now on the GetLastInputInfo clock (ms since boot).
+
+    kernel32 first: this process's user32 can sit behind hooks (game
+    anti-cheat on this machine hides GetTickCount from ctypes) while
+    kernel32 answers fine.
+    """
+    try:
+        return int(ctypes.windll.kernel32.GetTickCount64())
+    except AttributeError:
+        return int(ctypes.windll.user32.GetTickCount())
+
+
+def _idle_ms() -> int:
+    """Milliseconds since the last keyboard/mouse input, system-wide."""
+    class _LASTINPUTINFO(ctypes.Structure):
+        _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_ulong)]
+
+    info = _LASTINPUTINFO()
+    info.cbSize = ctypes.sizeof(_LASTINPUTINFO)
+    user32 = _user32()
+    if not user32.GetLastInputInfo(ctypes.byref(info)):
+        raise OSError("GetLastInputInfo failed")
+    return int((_tick_ms() - info.dwTime) & 0xFFFFFFFF)
+
+
+def _tool_idle_time(args: IdleTimeArgs) -> dict:
+    try:
+        return {"ok": True, "idle_ms": _idle_ms()}
+    except Exception as exc:  # noqa: BLE001 - unreadable counter is data
+        return _refuse("IDLE_UNREADABLE", str(exc)[:200])
+
+
+def _tool_shortcut(args: ShortcutArgs) -> dict:
+    refusal, activated = _bind_window(args.target, args.activate)
+    if refusal:
+        return refusal
     tokens = args.keys.split("+")
     codes = [_vk(t) for t in tokens]
     events: list[dict] = []
@@ -874,6 +992,45 @@ def _tool_shortcut(args: ShortcutArgs) -> dict:
     _send_input(events)
     result = {"ok": True, "keys": args.keys}
     if args.target is not None:
+        result["activated"] = activated
+    return result
+
+
+def _unicode_events(text: str) -> list[dict]:
+    """One down/up pair per UTF-16 unit (astral characters = surrogates)."""
+    units = text.encode("utf-16-le")
+    events: list[dict] = []
+    for offset in range(0, len(units), 2):
+        scan = units[offset] | (units[offset + 1] << 8)
+        events.append({"type": "key", "scan": scan, "up": False})
+        events.append({"type": "key", "scan": scan, "up": True})
+    return events
+
+
+def _tool_type_text(args: TypeTextArgs) -> dict:
+    refusal, activated = _bind_window(args.target, args.activate)
+    if refusal:
+        return refusal
+    _send_input(_unicode_events(args.text))
+    result: dict = {"ok": True, "chars": len(args.text)}
+    if args.target is not None:
+        result["target"] = args.target
+        result["activated"] = activated
+    return result
+
+
+def _tool_key_hold(args: KeyHoldArgs) -> dict:
+    refusal, activated = _bind_window(args.target, args.activate)
+    if refusal:
+        return refusal
+    code = _vk(args.key)
+    _send_input([{"type": "key", "vk": code, "up": False}])
+    if args.ms:
+        time.sleep(args.ms / 1000.0)
+    _send_input([{"type": "key", "vk": code, "up": True}])
+    result: dict = {"ok": True, "key": args.key, "ms": args.ms}
+    if args.target is not None:
+        result["target"] = args.target
         result["activated"] = activated
     return result
 
@@ -908,7 +1065,8 @@ _tool_move.__doc__ = (
     "Move the pointer to (x, y), image pixels of frame=... when given. With "
     "drag=True the button goes down first; the safe profile requires "
     "from_x/from_y plus target/frame so both drag endpoints are verified. "
-    "A plain unbound move still works for hovering."
+    "steps=N interpolates the drag path for drop targets that ignore "
+    "single-burst drags. A plain unbound move still works for hovering."
 )
 _tool_double_click.__doc__ = (
     "Double-click the left/right/middle mouse button. Same binding contract "
@@ -933,11 +1091,27 @@ _tool_shortcut.__doc__ = (
 )
 _tool_clipboard_get.__doc__ = "Read text from the Windows clipboard."
 _tool_clipboard_set.__doc__ = "Put text on the Windows clipboard."
+_tool_type_text.__doc__ = (
+    "Type short text keystroke by keystroke (Unicode, layout-independent) "
+    "for apps whose ValuePattern or clipboard paste does not work. Same "
+    "target/activate contract as shortcut; capped at 512 chars."
+)
+_tool_key_hold.__doc__ = (
+    "Hold one key down for N milliseconds, then release. Same "
+    "target/activate contract as shortcut."
+)
+_tool_idle_time.__doc__ = (
+    "Milliseconds since the last system-wide keyboard/mouse input. "
+    "Read-only observation for deciding whether the user is at the machine."
+)
 
 TOOLS: list[dict] = [
     _bind("click", ClickArgs, _tool_click),
     _bind("double_click", DoubleClickArgs, _tool_double_click),
     _bind("cursor_position", CursorPositionArgs, _tool_cursor_position),
+    _bind("idle_time", IdleTimeArgs, _tool_idle_time),
+    _bind("type_text", TypeTextArgs, _tool_type_text),
+    _bind("key_hold", KeyHoldArgs, _tool_key_hold),
     _bind("move", MoveArgs, _tool_move),
     _bind("scroll", ScrollArgs, _tool_scroll),
     _bind("shortcut", ShortcutArgs, _tool_shortcut),

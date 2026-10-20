@@ -450,6 +450,11 @@ class CodeGotoArgs(BaseModel):
     timeout_ms: int = Field(default=15000, ge=0)
 
 
+class OpenDefaultArgs(BaseModel):
+    target: str = Field(description="file path (must exist) or http(s) URL")
+    cwd: str | None = None
+
+
 class PidArgs(BaseModel):
     pid: int
 
@@ -957,6 +962,49 @@ def h_code_goto(args: Any) -> dict:
     return {"ok": True, "pid": created["pid"], "hwnd": hwnd, "path": target}
 
 
+def _foreground_hwnd() -> int | None:
+    """The foreground window handle, or None when there is none."""
+    _need_windows()
+    hwnd = _user32.GetForegroundWindow()
+    return int(hwnd) if hwnd else None
+
+
+def h_get_active_window(args: Any) -> dict:
+    """The window in the foreground: hwnd, title and pid.
+
+    Read-only. Resolved against the live window inventory, so a stale or
+    dead handle is NO_FOREGROUND instead of a guess.
+    """
+    _args(_NoArgs, args)
+    hwnd = _foreground_hwnd()
+    if hwnd is None:
+        raise WinProcError("NO_FOREGROUND", "no foreground window right now")
+    for w_hwnd, title, pid, _visible in _enum_windows_real():
+        if int(w_hwnd) == hwnd:
+            return {"ok": True, "hwnd": hwnd, "title": title, "pid": pid}
+    raise WinProcError("NO_FOREGROUND",
+                       f"foreground hwnd {hwnd} is not a listed window")
+
+
+def h_open_default(args: Any) -> dict:
+    """Open a file or URL with its default handler (ShellExecute "open").
+
+    Fail-closed: files must exist; URLs are limited to http(s). A shell
+    return at or below 32 is OPEN_FAILED, never silent.
+    """
+    m = _args(OpenDefaultArgs, args)
+    target = m.target.strip()
+    lowered = target.lower()
+    if not lowered.startswith(("http://", "https://")):
+        if not os.path.isfile(target) and not os.path.isdir(target):
+            raise WinProcError("FILE_NOT_FOUND", f"no file at {target!r}")
+    ret = _shell_execute(target, "", m.cwd, _SW_SHOWNORMAL)
+    if int(ret) <= 32:
+        raise WinProcError("OPEN_FAILED",
+                           f"shell could not open {target!r} (code {ret})")
+    return {"ok": True, "target": target}
+
+
 def h_app_launch(args: Any) -> dict:
     m = _args(AppLaunchArgs, args)
     target = m.effective_target()
@@ -1016,6 +1064,8 @@ TOOLS = [
     _tool("win_close", "Ask a window to close via WM_CLOSE and confirm it is gone.", HwndArgs, h_win_close),
     _tool("win_topmost", "Pin/unpin a window above the rest (no move/resize).", WinTopmostArgs, h_win_topmost),
     _tool("code_goto", "Open a file at line:col in VS Code via its CLI.", CodeGotoArgs, h_code_goto),
+    _tool("get_active_window", "Foreground window: hwnd, title, pid.", _NoArgs, h_get_active_window),
+    _tool("open_default", "Open a file/URL with its default handler.", OpenDefaultArgs, h_open_default),
     _tool("get_hwnd_pid_path", "Owner pid + exe path for a window handle.", HwndArgs, h_get_hwnd_pid_path),
     _tool("proc_tree", "Process tree with command lines.", _NoArgs, h_proc_tree),
     _tool("is_elevated", "Whether a pid runs elevated.", PidArgs, h_is_elevated),

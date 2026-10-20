@@ -136,6 +136,12 @@ class NotifyArgs(BaseModel):
     msg: str = Field(min_length=1)
 
 
+class EnvGetArgs(BaseModel):
+    """Read one environment variable."""
+
+    name: str = Field(min_length=1, description="Variable name, e.g. PATH.")
+
+
 class ScrapeDomArgs(BaseModel):
     """Read a browser page through the DOM backend, when one is injected."""
 
@@ -560,6 +566,16 @@ def notify(args: Union[NotifyArgs, dict, None] = None, **kwargs: Any) -> dict:
     return {"ok": True, "delivered": delivered}
 
 
+def env_get(args: Union[EnvGetArgs, dict, None] = None, **kwargs: Any) -> dict:
+    """Read one environment variable. Read-only; missing is data, not error."""
+    import os
+
+    a = _coerce(EnvGetArgs, args, kwargs)
+    value = os.environ.get(a.name)
+    return {"ok": True, "name": a.name, "value": value,
+            "present": value is not None}
+
+
 # ---------------------------------------------------------------------------
 # scrape_dom — backend seam
 # ---------------------------------------------------------------------------
@@ -667,6 +683,15 @@ TOOLS = [
         ),
         schema=NotifyArgs,
         handler=notify,
+    ),
+    ToolDef(
+        name="env_get",
+        description=(
+            "Read one environment variable (PATH, WINMCP_*, ...). Read-only; "
+            "a missing variable reports present=false."
+        ),
+        schema=EnvGetArgs,
+        handler=env_get,
     ),
     ToolDef(
         name="scrape_dom",

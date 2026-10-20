@@ -291,6 +291,86 @@ def handler_displays(args: Any) -> dict:
     return {"ok": True, "count": len(displays), "displays": displays}
 
 
+class WinShotArgs(BaseModel):
+    hwnd: int = Field(description="Window handle to capture.")
+
+
+def _window_rect(hwnd: int) -> tuple[int, int, int, int]:
+    """Desktop (left, top, right, bottom) of a live window. Seam for tests."""
+    rect = ctypes.wintypes.RECT()
+    user32 = ctypes.windll.user32
+    if not user32.IsWindow(hwnd) or not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        raise ValueError(f"hwnd {hwnd} is not a capturable window")
+    return (int(rect.left), int(rect.top), int(rect.right), int(rect.bottom))
+
+
+def handler_win_shot(args: Any) -> dict:
+    """Capture one window to PNG by cropping its rectangle.
+
+    The crop shows what is really on screen (an overlapping window paints
+    over it - use choose_file-style patterns when occlusion matters). The
+    result carries the same frame id as screenshot/zoom, so the crop stays
+    clickable through the frame-pinned path.
+    """
+    m = WinShotArgs(**dict(args or {}))
+    if _dry():
+        return {"ok": True, "dry_run": True, "hwnd": m.hwnd}
+    try:
+        left, top, right, bottom = _window_rect(m.hwnd)
+    except Exception as exc:  # noqa: BLE001 - dead handle is data
+        return {"ok": False, "error": "BAD_WINDOW", "reason": str(exc)[:200]}
+    if right <= left or bottom <= top:
+        return {"ok": False, "error": "BAD_WINDOW",
+                "reason": f"hwnd {m.hwnd} has an empty rectangle"}
+    try:
+        rgb, width, height, origin = _capture(0)
+    except ImportError:
+        return {"ok": False, "error": "UNAVAILABLE", "reason": _BACKEND_MISSING}
+    except Exception as exc:  # noqa: BLE001 - capture failure is data
+        return {"ok": False, "error": "CAPTURE_FAILED", "reason": str(exc)[:200]}
+    right = min(right - origin["left"], width)
+    bottom = min(bottom - origin["top"], height)
+    left = max(left - origin["left"], 0)
+    top = max(top - origin["top"], 0)
+    if right <= left or bottom <= top:
+        return {"ok": False, "error": "BAD_WINDOW",
+                "reason": f"hwnd {m.hwnd} is outside every display"}
+    from PIL import Image
+
+    crop = Image.frombytes("RGB", (width, height), rgb).crop((left, top, right, bottom))
+    saved = _save_png(crop.tobytes(), *crop.size, "winshot")
+    frame = _frame_register(monitor=0, left=origin["left"] + left,
+                            top=origin["top"] + top, scale=1.0,
+                            width=saved["width"], height=saved["height"])
+    return {"ok": True, "hwnd": m.hwnd,
+            "region": [left, top, right, bottom], "frame": frame, **saved}
+
+
+class ColorAtArgs(BaseModel):
+    x: int = Field(description="Desktop pixel column.")
+    y: int = Field(description="Desktop pixel row.")
+    monitor: int = Field(default=0, ge=0, description="Zero-based display index.")
+
+
+def handler_color_at(args: Any) -> dict:
+    """Read one desktop pixel as RGB + hex. Read-only canvas/testing probe."""
+    m = ColorAtArgs(**dict(args or {}))
+    try:
+        rgb, width, height, origin = _capture(m.monitor)
+    except ImportError:
+        return {"ok": False, "error": "UNAVAILABLE", "reason": _BACKEND_MISSING}
+    except Exception as exc:  # noqa: BLE001 - capture failure is data
+        return {"ok": False, "error": "CAPTURE_FAILED", "reason": str(exc)[:200]}
+    x, y = m.x - origin["left"], m.y - origin["top"]
+    if not (0 <= x < width and 0 <= y < height):
+        return {"ok": False, "error": "OUT_OF_RANGE",
+                "reason": f"({m.x}, {m.y}) is outside the {width}x{height} display"}
+    offset = (y * width + x) * 3
+    r, g, b = rgb[offset], rgb[offset + 1], rgb[offset + 2]
+    return {"ok": True, "x": m.x, "y": m.y, "r": r, "g": g, "b": b,
+            "hex": f"#{r:02x}{g:02x}{b:02x}"}
+
+
 _IMG_FORMATS = {
     "png": "PNG", "jpeg": "JPEG", "jpg": "JPEG",
     "pdf": "PDF", "bmp": "BMP", "gif": "GIF",
@@ -390,4 +470,13 @@ TOOLS = [
           "downscale. File-to-file pixels with no screen involved; never "
           "overwrites its input.",
           ImgConvertArgs, handler_img_convert),
+    _tool("win_shot",
+          "Capture one window (by hwnd) to a PNG file, with the same inline "
+          "image delivery and clickable frame id as screenshot. Shows what "
+          "is really on screen: overlapping windows paint over it.",
+          WinShotArgs, handler_win_shot),
+    _tool("color_at",
+          "Read one desktop pixel as RGB + hex. Read-only probe for canvas "
+          "rendering and theme checks.",
+          ColorAtArgs, handler_color_at),
 ]

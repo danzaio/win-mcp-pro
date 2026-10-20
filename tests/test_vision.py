@@ -30,7 +30,8 @@ def fake_shot(monkeypatch, tmp_path):
 
 def test_tools_contract():
     assert {t["name"] for t in vision.TOOLS} == {"screenshot", "zoom",
-                                                      "displays", "img_convert"}
+                                                      "displays", "img_convert",
+                                                      "win_shot", "color_at"}
     for t in vision.TOOLS:
         assert t["description"]
         assert issubclass(t["schema"], BaseModel)

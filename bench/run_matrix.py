@@ -6,7 +6,7 @@ Run::
 
 Spawns two disposable WinForms fixtures (a target and a decoy; each logs
 every observable effect to its own JSONL file), starts the MCP server over
-stdio, and runs 24 deterministic driver-conformance tasks. Effects are
+stdio, and runs 33 deterministic driver-conformance tasks. Effects are
 asserted from the fixtures' own logs - the external oracle - never from the
 server's reply, and the decoy's log proves zero wrong-target leakage. Writes
 JSON + a markdown summary and exits non-zero if any task fails.
@@ -40,7 +40,9 @@ ALLOWED = ("list_windows,snapshot,find,get_prop,set_value,invoke,zoom,click,"
            "cursor_position,double_click,ocr_click,wait_change,"
            "menu_click,form_fill,table_extract,choose_file,displays,"
            "img_convert,code_goto,win_close,win_topmost,focus,"
-           "win_min,win_restore,shortcut")
+           "win_min,win_restore,shortcut,idle_time,get_active_window,"
+           "open_default,type_text,key_hold,win_shot,color_at,env_get,"
+           "get_value")
 
 
 class SkipTask(Exception):
@@ -757,10 +759,8 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                                 _kill(proc)
                         finally:
                             for hwnd in minimized:
-                                try:
-                                    await call("win_restore", {"hwnd": hwnd})
-                                except Exception:
-                                    pass
+                                restored = await call("win_restore", {"hwnd": hwnd})
+                                assert restored["ok"], (hwnd, restored)
 
                     async def t22():
                         from PIL import Image
@@ -840,6 +840,133 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         finally:
                             _kill(proc)
 
+                    async def t25():
+                        idle = await call("idle_time", {})
+                        assert idle["ok"], idle
+                        assert isinstance(idle["idle_ms"], int) and idle["idle_ms"] >= 0, idle
+                        return f"idle {idle['idle_ms']}ms"
+
+                    async def t26():
+                        active = await call("get_active_window", {})
+                        assert active["ok"], active
+                        assert active["hwnd"] and active["title"] and active["pid"], active
+                        return f"foreground is {active['title'][:40]!r}"
+
+                    async def t27():
+                        # open_default on a fresh folder: Explorer opens a new
+                        # window titled with the folder name; win_close takes
+                        # it down. Ghost paths stay fail-closed.
+                        folder = workdir / f"open-{suffix}"
+                        folder.mkdir(exist_ok=True)
+                        before = {w["hwnd"] for w in
+                                  (await call("list_windows", {}))["windows"]}
+                        opened = await call("open_default", {"target": str(folder)})
+                        assert opened["ok"], opened
+                        exp_hwnd = None
+                        deadline = time.monotonic() + 15
+                        while time.monotonic() < deadline:
+                            inventory = await call("list_windows", {})
+                            hit = [w for w in inventory["windows"]
+                                   if w["hwnd"] not in before
+                                   and folder.name.lower() in (w["title"] or "").lower()]
+                            if hit:
+                                exp_hwnd = hit[0]["hwnd"]
+                                break
+                            await asyncio.sleep(0.4)
+                        assert exp_hwnd, "Explorer window never appeared"
+                        closed = await call("win_close", {"hwnd": exp_hwnd})
+                        assert closed["ok"], closed
+                        refused = await call("open_default", {
+                            "target": str(workdir / "ghost-file.txt")})
+                        assert refused["error"] == "FILE_NOT_FOUND", refused
+                        return "open_default opened a folder, ghost refused"
+
+                    async def t28():
+                        window = await target_window()
+                        field = await find_in_window(window, target_names["input"], "Edit")
+                        text = f"typed-{suffix}"
+                        # one retry: a physical keystroke can interleave and
+                        # steal the foreground mid-batch; the oracle decides.
+                        for _attempt in range(2):
+                            typed = await call("type_text", {"text": text, "target": field})
+                            assert typed["ok"] and typed["chars"] == len(text), typed
+                            texts = [e.get("value") for e in _read_events(target_log)
+                                     if e.get("event") == "text"]
+                            if texts and texts[-1] == text:
+                                break
+                        assert texts and texts[-1] == text, texts[-5:]
+                        return "type_text typed the field keystroke by keystroke"
+
+                    async def t29():
+                        window = await target_window()
+                        field = await find_in_window(window, target_names["input"], "Edit")
+                        before = (await call("get_value", {"id": field}))["value"] or ""
+                        held = await call("key_hold", {"key": "x", "ms": 800,
+                                                       "target": field})
+                        assert held["ok"], held
+                        after = (await call("get_value", {"id": field}))["value"] or ""
+                        assert len(after) > len(before) and after.endswith("x"), (
+                            before, after)
+                        return f"key_hold grew the field by {len(after) - len(before)}"
+
+                    async def t30():
+                        # stepped drag of the target window by its titlebar:
+                        # the window rect must travel (nearly) the full path.
+                        window = await target_window()
+                        rect0 = (await call("get_prop", {"id": window, "prop": "rect"}))["value"]
+                        assert rect0["right"] > rect0["left"] and rect0["bottom"] > rect0["top"], rect0
+                        vx, vy = _monitor_origin()
+                        zoom = await call("zoom", {
+                            "left": rect0["left"] - vx, "top": rect0["top"] - vy,
+                            "right": rect0["right"] - vx, "bottom": rect0["bottom"] - vy})
+                        assert zoom["ok"], zoom
+                        frame = zoom["frame"]
+                        w = rect0["right"] - rect0["left"]
+                        from_x = (rect0["left"] + rect0["right"]) / 2 - frame["left"]
+                        from_y = (rect0["top"] + 15) - frame["top"]
+                        to_x, to_y = from_x + 120, from_y
+                        dragged = await call("move", {
+                            "from_x": from_x, "from_y": from_y,
+                            "x": to_x, "y": to_y, "drag": True, "steps": 8,
+                            "frame": frame["id"], "target": window})
+                        assert dragged["ok"] and dragged.get("steps") == 8, dragged
+                        rect1 = (await call("get_prop", {"id": window, "prop": "rect"}))["value"]
+                        dx = rect1["left"] - rect0["left"]
+                        assert 80 <= dx <= 160, (rect0, rect1)
+                        return f"stepped drag moved the window by {dx}px"
+
+                    async def t31():
+                        inventory = await call("list_windows", {})
+                        target = next(w for w in inventory["windows"]
+                                      if w["title"] == target_title
+                                      and w["pid"] == app_target.pid)
+                        shot = await call("win_shot", {"hwnd": target["hwnd"]})
+                        assert shot["ok"], shot
+                        assert os.path.isfile(shot["path"]), shot
+                        assert shot["frame"]["id"], shot
+                        return f"win_shot saved {shot['width']}x{shot['height']}"
+
+                    async def t32():
+                        # the input box is flat white with no focus and no
+                        # selection: a pixel near its right edge (past any
+                        # typed text) must read pure white.
+                        window = await target_window()
+                        field = await find_in_window(window, target_names["input"], "Edit")
+                        irect = (await call("get_prop", {"id": field, "prop": "rect"}))["value"]
+                        cx = irect["right"] - 10
+                        cy = (irect["top"] + irect["bottom"]) // 2
+                        pixel = await call("color_at", {"x": cx, "y": cy})
+                        assert pixel["ok"], pixel
+                        assert (pixel["r"], pixel["g"], pixel["b"]) == (255, 255, 255), pixel
+                        return "color_at read the white input box"
+
+                    async def t33():
+                        path_value = await call("env_get", {"name": "PATH"})
+                        assert path_value["ok"], path_value
+                        assert path_value["present"] is True, path_value
+                        assert path_value["value"], path_value
+                        return "env_get read PATH"
+
                     all_tasks = [
                         ("T01", "find target window (identity)", t01),
                         ("T02", "set_value + oracle readback", t02),
@@ -865,6 +992,15 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         ("T22", "img_convert files + guard", t22),
                         ("T23", "code_goto + topmost + close", t23),
                         ("T24", "win_close dedicated window", t24),
+                        ("T25", "idle_time read", t25),
+                        ("T26", "get_active_window shape", t26),
+                        ("T27", "open_default folder + ghost", t27),
+                        ("T28", "type_text keystrokes + oracle", t28),
+                        ("T29", "key_hold grows field", t29),
+                        ("T30", "stepped drag moves window", t30),
+                        ("T31", "win_shot file + frame", t31),
+                        ("T32", "color_at white input", t32),
+                        ("T33", "env_get PATH", t33),
                     ]
                     for tid, desc, fn in all_tasks:
                         if only and tid not in only:

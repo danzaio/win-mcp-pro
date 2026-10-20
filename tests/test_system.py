@@ -50,6 +50,7 @@ def test_tools_list_shape() -> None:
         "fs_write",
         "registry_get",
         "notify",
+        "env_get",
         "scrape_dom",
     ]
     for tool in sysmod.TOOLS:
