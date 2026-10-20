@@ -23,6 +23,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from pydantic import BaseModel
 
+from win_mcp_pro import __version__
 from win_mcp_pro.tools import call_handler as _call_handler
 
 from . import registry
@@ -199,7 +200,12 @@ def build_server(
             content.append(image)
         return types.CallToolResult(content=content, is_error=False)
 
-    return Server("win-mcp-pro", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
+    return Server(
+        "win-mcp-pro",
+        version=__version__,
+        on_list_tools=on_list_tools,
+        on_call_tool=on_call_tool,
+    )
 
 
 async def _serve(server: Server) -> None:
@@ -285,6 +291,12 @@ def main(argv: list[str] | None = None) -> int:
         "--exclude-tools", help="comma-separated blocklist of tool names to hide"
     )
     parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="expose only inspection and wait tools (no input, no window "
+             "changes, no clipboard, no files); same as a --tools allowlist",
+    )
+    parser.add_argument(
         "--input-unrestricted",
         action="store_true",
         help="allow unbound global input (legacy profile); the default "
@@ -306,8 +318,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--worker-command",
         default=None,
-        help="advanced: python script run as the UIA worker instead of the "
-             "built-in server.worker module (tests use this)",
+        help=argparse.SUPPRESS,  # test seam: swap in a fake worker script
     )
     args = parser.parse_args(argv)
     from win_mcp_pro.tools import compat
@@ -315,8 +326,12 @@ def main(argv: list[str] | None = None) -> int:
     compat.set_unrestricted(args.input_unrestricted)
     # Fail-closed filtering: an explicit but empty --tools is a config error
     # (never silently "allow everything"); absent flags mean unrestricted.
-    from .security import parse_tool_filter
+    from .security import READ_ONLY_TOOLS, parse_tool_filter
 
+    if args.read_only:
+        if args.tools is not None:
+            parser.error("--read-only cannot be combined with --tools")
+        args.tools = ",".join(sorted(READ_ONLY_TOOLS))
     filter_argv: list[str] = []
     if args.tools is not None:
         filter_argv += ["--tools", args.tools]

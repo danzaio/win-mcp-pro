@@ -6,15 +6,10 @@ Task 3 of the implementation plan; spec §3, layer 1. Two modes:
 - ``full``  — every top-level window walked ``depth`` levels deep with an
   optional ``type_filter``, or the single subtree named by ``root``.
 
-``full`` materializes each window's subtree through a UIA ``CacheRequest``
-(properties + patterns + tree scope) and releases it in a ``finally``, so a
-timeout or a dead element never leaks the request. Each window gets its own
+``full`` walks every window's subtree live. Each window gets its own
 sub-budget out of the call's total ``timeout_ms`` and its own exception
 boundary, so a slow or broken provider is dropped and recorded in
-``Snapshot.skipped`` by pid while the healthy windows still come back. The
-released ``uiautomation`` builds ship that cached API commented out, so when
-the module does not expose it the walk runs live with identical output,
-budgets and semantics.
+``Snapshot.skipped`` by pid while the healthy windows still come back.
 
 Every element carries a stable id, ``"hwnd:runtimeid"`` (the format the waits
 layer parses), its canonical control kind, and the control patterns it
@@ -30,11 +25,9 @@ stdio transport owns. No images are taken, ever.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import sys
 import time
-from collections.abc import Iterator
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -70,12 +63,6 @@ _MAX_TIMEOUT_MS = 600_000
 # ---------------------------------------------------------------------------
 # UIA ids (ABI-stable constants; the library's own values win when importable)
 # ---------------------------------------------------------------------------
-
-_NAME_PROP = 30005
-_RUNTIME_ID_PROP = 30000
-_AUTOMATION_ID_PROP = 30011
-_CLASS_NAME_PROP = 30012
-_BOUNDING_RECT_PROP = 30001
 
 _INVOKE_PATTERN = 10000
 _VALUE_PATTERN = 10002
@@ -387,12 +374,6 @@ def _pattern_id_of(constant: int, attr_name: str) -> int | None:
     return _int(value, constant) if value is not None else constant
 
 
-def _property_id_of(attr_name: str, constant: int) -> int:
-    property_ids = getattr(_uia, "PropertyId", None) if _uia is not None else None
-    value = getattr(property_ids, attr_name, None) if property_ids is not None else None
-    return _int(value, constant) if value is not None else constant
-
-
 def _patterns_of(control: Any) -> list[str]:
     """Pattern names this control supports, in the order the act layer wants."""
     supported: list[str] = []
@@ -448,94 +429,6 @@ class _Budget:
 # ---------------------------------------------------------------------------
 # cache request: props + patterns + scope, released in finally
 # ---------------------------------------------------------------------------
-
-
-def _cache_request() -> Any | None:
-    """Build a UIA CacheRequest, or None when the library lacks the cached API.
-
-    uiautomation 2.0.29 (the released build) ships ``CacheRequest`` commented
-    out; newer builds expose it. Either way the walk below is the same code.
-    """
-    if _uia is None:
-        return None
-    cache_cls = getattr(_uia, "CacheRequest", None)
-    if not callable(cache_cls):
-        return None
-    try:
-        request = cache_cls()
-    except Exception:  # noqa: BLE001 - a broken cache type is a missing one
-        return None
-
-    add_property = getattr(request, "AddProperty", None)
-    if not callable(add_property):
-        return None
-    for attr_name, constant in (
-        ("NameProperty", _NAME_PROP),
-        ("RuntimeIdProperty", _RUNTIME_ID_PROP),
-        ("AutomationIdProperty", _AUTOMATION_ID_PROP),
-        ("ClassNameProperty", _CLASS_NAME_PROP),
-        ("BoundingRectangleProperty", _BOUNDING_RECT_PROP),
-    ):
-        try:
-            add_property(_property_id_of(attr_name, constant))
-        except Exception:  # noqa: BLE001 - this property is not cacheable here
-            continue
-
-    add_pattern = getattr(request, "AddPattern", None)
-    if callable(add_pattern):
-        for _, constant, attr_name in _WANTED_PATTERNS:
-            try:
-                add_pattern(_pattern_id_of(constant, attr_name))
-            except Exception:  # noqa: BLE001 - skip what cannot be cached
-                continue
-
-    scope = getattr(_uia, "TreeScope_Subtree", None)
-    if scope is not None:
-        try:
-            request.TreeScope = scope
-        except Exception:  # noqa: BLE001 - the default scope applies then
-            pass
-    mode = getattr(_uia, "AutomationElementMode_Full", None)
-    if mode is not None:
-        try:
-            request.AutomationElementMode = mode
-        except Exception:  # noqa: BLE001 - the default element mode applies then
-            pass
-    return request
-
-
-def _release_cache(request: Any | None) -> None:
-    """Release the cache request: explicit hook first, then drop the reference."""
-    if request is None:
-        return
-    for method in ("Release", "Dispose"):
-        release = getattr(request, method, None)
-        if callable(release):
-            try:
-                release()
-            except Exception:  # noqa: BLE001 - a failed hook is not fatal
-                pass
-            break
-
-
-@contextlib.contextmanager
-def _cached_tree(root_control: Any) -> Iterator[Any]:
-    """Yield the subtree of ``root_control`` materialized through a cache.
-
-    The request is built before the walk and released in ``finally`` so a
-    timeout, a dead element or an exception never leaks it. Without a cached
-    API the same control is yielded and the walk runs live.
-    """
-    request = _cache_request()
-    build = getattr(root_control, "BuildUpdatedCache", None)
-    if request is None or not callable(build):
-        yield root_control
-        return
-    try:
-        cached = build(request)
-        yield cached if cached is not None else root_control
-    finally:
-        _release_cache(request)
 
 
 # ---------------------------------------------------------------------------
@@ -776,8 +669,7 @@ def snapshot(
             )
         windows = _window_inventory()
         try:
-            with _cached_tree(root_control) as tree:
-                elements = _walk(tree, hwnd, kinds, budget, args.depth)
+            elements = _walk(root_control, hwnd, kinds, budget, args.depth)
         except SnapshotTimeout:
             raise
         except Exception as exc:  # noqa: BLE001 - a dead root skips, never kills
@@ -835,19 +727,15 @@ def snapshot(
         for index, control in enumerate(pending):
             hwnd = _hwnd_of(control)
             try:
-                # The cache request is acquired before the budget check on
-                # purpose: even an immediately-timed-out window must prove
-                # the request was built and released (context manager).
-                with _cached_tree(control) as tree:
-                    remaining_ms = args.timeout_ms - (_perf_counter() - started) * 1000.0
-                    if remaining_ms <= 0.0:
-                        raise SnapshotTimeout(
-                            f"snapshot(mode=full) out of budget before window "
-                            f"{_skip_label(control)}"
-                        )
-                    sub_ms = remaining_ms / (left - index)
-                    found = _walk(tree, hwnd, kinds, _Budget(sub_ms, "full"),
-                                  args.depth)
+                remaining_ms = args.timeout_ms - (_perf_counter() - started) * 1000.0
+                if remaining_ms <= 0.0:
+                    raise SnapshotTimeout(
+                        f"snapshot(mode=full) out of budget before window "
+                        f"{_skip_label(control)}"
+                    )
+                sub_ms = remaining_ms / (left - index)
+                found = _walk(control, hwnd, kinds, _Budget(sub_ms, "full"),
+                              args.depth)
             except SnapshotTimeout:
                 timed_out = True
                 skipped.append(_skip_label(control))  # skip this window, keep going

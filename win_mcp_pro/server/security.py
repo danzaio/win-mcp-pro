@@ -223,51 +223,11 @@ def parse_tool_filter(argv):
     return allow, block
 
 
-def enforce_filter(tool_name, allowlist, blocklist) -> bool:
-    """Is ``tool_name`` permitted under the parsed filters?
-
-    Blocklist wins over allowlist. A falsy blocklist restricts nothing.
-    ``allowlist=None`` means unrestricted; an empty allowlist set denies
-    everything (fail closed).
-    """
-    if blocklist and tool_name in blocklist:
-        return False
-    if allowlist is not None:
-        return tool_name in allowlist
-    return True
-
-
-# ---------------------------------------------------------------------------
-# Secret redaction for audit logs
-# ---------------------------------------------------------------------------
-
-_MASKABLE_KEY_PARTS = (
-    "key", "token", "secret", "password", "passwd", "passphrase",
-    "credential", "auth", "cookie", "session", "signature", "private",
-)
-MASK = "***"
-
-
-def _is_sensitive_key(key) -> bool:
-    if not isinstance(key, str):
-        return False
-    k = key.lower()
-    return any(part in k for part in _MASKABLE_KEY_PARTS)
-
-
-def redact(obj):
-    """Return a copy of ``obj`` with sensitive values masked.
-
-    Any mapping key whose name contains key/token/secret/password/
-    credential/auth/... (case-insensitive) has its value replaced by
-    ``MASK``. Walks dicts and lists (incl. tuples); everything else passes
-    through unchanged. The input is never mutated.
-    """
-    if isinstance(obj, dict):
-        out = {}
-        for k, v in obj.items():
-            out[k] = MASK if _is_sensitive_key(k) else redact(v)
-        return out
-    if isinstance(obj, (list, tuple)):
-        return type(obj)(redact(v) for v in obj)
-    return obj
+#: ``--read-only``: inspection and waiting only. No input, no window changes,
+#: no clipboard, no files written, no process started.
+READ_ONLY_TOOLS = frozenset({
+    "list_windows", "get_active_window", "snapshot", "find", "dump_tree",
+    "get_prop", "get_patterns", "get_value", "table_extract", "displays",
+    "cursor_position", "wait", "wait_text", "wait_focus", "wait_enabled",
+    "wait_gone", "doctor",
+})

@@ -39,9 +39,9 @@ ALLOWED = ("list_windows,snapshot,find,get_prop,set_value,invoke,zoom,click,"
            "wait_text,wait_enabled,dump_tree,ocr_read,replay,doctor,"
            "cursor_position,double_click,ocr_click,wait_change,"
            "menu_click,form_fill,table_extract,choose_file,displays,"
-           "img_convert,code_goto,win_close,win_topmost,focus,"
-           "win_min,win_restore,shortcut,idle_time,get_active_window,"
-           "open_default,type_text,key_hold,win_shot,color_at,"
+           "win_close,focus,"
+           "win_min,win_restore,shortcut,get_active_window,"
+           "open_default,type_text,key_hold,win_shot,"
            "get_value")
 
 
@@ -763,52 +763,6 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                                 assert restored["ok"], (hwnd, restored)
 
                     async def t22():
-                        from PIL import Image
-
-                        src = workdir / "gen.png"
-                        Image.new("RGB", (200, 100), "red").save(src)
-                        jpg = await call("img_convert", {
-                            "path": str(src), "format": "jpeg",
-                            "output": str(workdir / "gen.jpg"), "max_width": 100})
-                        assert jpg["ok"] and jpg["width"] == 100, jpg
-                        pdf = await call("img_convert", {
-                            "path": str(src), "format": "pdf",
-                            "output": str(workdir / "gen.pdf")})
-                        assert pdf["ok"], pdf
-                        refused = await call("img_convert", {
-                            "path": str(src), "format": "png",
-                            "output": str(src)})
-                        assert refused["error"] == "INPUT_PROTECTED", refused
-                        return "img_convert re-encoded jpeg+pdf, input protected"
-
-                    async def t23():
-                        # VS Code opens the file at its line in a new window;
-                        # win_close takes that window back down.
-                        target = workdir / "goto.txt"
-                        target.write_text("one\ntwo\nthree\n", encoding="utf-8")
-                        opened = await call("code_goto", {
-                            "path": str(target), "line": 2, "new_window": True})
-                        assert opened["ok"], opened
-                        code_hwnd = None
-                        deadline = time.monotonic() + 25
-                        while time.monotonic() < deadline:
-                            inventory = await call("list_windows", {})
-                            hit = [w for w in inventory["windows"]
-                                   if "goto.txt" in (w["title"] or "")]
-                            if hit:
-                                code_hwnd = hit[0]["hwnd"]
-                                break
-                            await asyncio.sleep(0.5)
-                        assert code_hwnd, "VS Code window never appeared"
-                        pinned = await call("win_topmost", {"hwnd": code_hwnd, "on": True})
-                        assert pinned["state"] == "topmost", pinned
-                        unpinned = await call("win_topmost", {"hwnd": code_hwnd, "on": False})
-                        assert unpinned["state"] == "normal", unpinned
-                        closed = await call("win_close", {"hwnd": code_hwnd})
-                        assert closed["ok"], closed
-                        return "code_goto opened at line, topmost round-trip, closed"
-
-                    async def t24():
                         proc = subprocess.Popen(
                             ["notepad.exe"], stdin=subprocess.DEVNULL,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -840,19 +794,13 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         finally:
                             _kill(proc)
 
-                    async def t25():
-                        idle = await call("idle_time", {})
-                        assert idle["ok"], idle
-                        assert isinstance(idle["idle_ms"], int) and idle["idle_ms"] >= 0, idle
-                        return f"idle {idle['idle_ms']}ms"
-
-                    async def t26():
+                    async def t23():
                         active = await call("get_active_window", {})
                         assert active["ok"], active
                         assert active["hwnd"] and active["title"] and active["pid"], active
                         return f"foreground is {active['title'][:40]!r}"
 
-                    async def t27():
+                    async def t24():
                         # open_default on a fresh folder: Explorer opens a new
                         # window titled with the folder name; win_close takes
                         # it down. Ghost paths stay fail-closed.
@@ -881,7 +829,7 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         assert refused["error"] == "FILE_NOT_FOUND", refused
                         return "open_default opened a folder, ghost refused"
 
-                    async def t28():
+                    async def t25():
                         window = await target_window()
                         field = await find_in_window(window, target_names["input"], "Edit")
                         text = f"typed-{suffix}"
@@ -897,7 +845,7 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         assert texts and texts[-1] == text, texts[-5:]
                         return "type_text typed the field keystroke by keystroke"
 
-                    async def t29():
+                    async def t26():
                         window = await target_window()
                         field = await find_in_window(window, target_names["input"], "Edit")
                         before = (await call("get_value", {"id": field}))["value"] or ""
@@ -909,7 +857,7 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                             before, after)
                         return f"key_hold grew the field by {len(after) - len(before)}"
 
-                    async def t30():
+                    async def t27():
                         # stepped drag of the target window by its titlebar:
                         # the window rect must travel (nearly) the full path.
                         window = await target_window()
@@ -934,7 +882,7 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         assert 80 <= dx <= 160, (rect0, rect1)
                         return f"stepped drag moved the window by {dx}px"
 
-                    async def t31():
+                    async def t28():
                         inventory = await call("list_windows", {})
                         target = next(w for w in inventory["windows"]
                                       if w["title"] == target_title
@@ -944,20 +892,6 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         assert os.path.isfile(shot["path"]), shot
                         assert shot["frame"]["id"], shot
                         return f"win_shot saved {shot['width']}x{shot['height']}"
-
-                    async def t32():
-                        # the input box is flat white with no focus and no
-                        # selection: a pixel near its right edge (past any
-                        # typed text) must read pure white.
-                        window = await target_window()
-                        field = await find_in_window(window, target_names["input"], "Edit")
-                        irect = (await call("get_prop", {"id": field, "prop": "rect"}))["value"]
-                        cx = irect["right"] - 10
-                        cy = (irect["top"] + irect["bottom"]) // 2
-                        pixel = await call("color_at", {"x": cx, "y": cy})
-                        assert pixel["ok"], pixel
-                        assert (pixel["r"], pixel["g"], pixel["b"]) == (255, 255, 255), pixel
-                        return "color_at read the white input box"
 
                     all_tasks = [
                         ("T01", "find target window (identity)", t01),
@@ -981,17 +915,13 @@ async def _run(only: set[str] | None = None) -> tuple[list[dict], dict]:
                         ("T19", "form_fill with readback", t19),
                         ("T20", "table_extract grid literals", t20),
                         ("T21", "choose_file real Open dialog", t21),
-                        ("T22", "img_convert files + guard", t22),
-                        ("T23", "code_goto + topmost + close", t23),
-                        ("T24", "win_close dedicated window", t24),
-                        ("T25", "idle_time read", t25),
-                        ("T26", "get_active_window shape", t26),
-                        ("T27", "open_default folder + ghost", t27),
-                        ("T28", "type_text keystrokes + oracle", t28),
-                        ("T29", "key_hold grows field", t29),
-                        ("T30", "stepped drag moves window", t30),
-                        ("T31", "win_shot file + frame", t31),
-                        ("T32", "color_at white input", t32),
+                        ("T22", "win_close dedicated window", t22),
+                        ("T23", "get_active_window shape", t23),
+                        ("T24", "open_default folder + ghost", t24),
+                        ("T25", "type_text keystrokes + oracle", t25),
+                        ("T26", "key_hold grows field", t26),
+                        ("T27", "stepped drag moves window", t27),
+                        ("T28", "win_shot file + frame", t28),
                     ]
                     for tid, desc, fn in all_tasks:
                         if only and tid not in only:

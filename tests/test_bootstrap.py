@@ -131,6 +131,15 @@ def test_blocklist_hides_tool(obj_registered):
     assert [t.name for t in registry.visible_tools(blocklist=["invoke"])] == ["find"]
 
 
+def test_blocklist_wins_over_allowlist(obj_registered):
+    visible = registry.visible_tools(allowlist=["find", "invoke"], blocklist=["find"])
+    assert [t.name for t in visible] == ["invoke"]
+
+
+def test_empty_allowlist_denies_everything(obj_registered):
+    assert registry.visible_tools(allowlist=[]) == []
+
+
 def test_register_module_rejects_malformed_def():
     with pytest.raises(ValueError):
         # dict missing the handler key

@@ -1,8 +1,7 @@
 """Tests for tools.snapshot.
 
 Covers: fast-mode shape (active window + direct children only), stable ids in
-the "hwnd:runtimeid" format, full-mode subtree walk (CacheRequest when the lib
-exposes it, live fallback otherwise), per-call timeout with release, type
+the "hwnd:runtimeid" format, full-mode subtree walk, per-call timeout, type
 filter, root-id resolution, traversal budgets, and the missing-library
 degradation. All UIA access goes through a fake ``uiautomation`` module, so
 nothing here touches the real desktop.
@@ -136,9 +135,8 @@ def _build_tree():
     return desktop, notepad, calc
 
 
-def make_fake_uia(with_cache=True):
-    """Build a fake uiautomation module. ``with_cache=False`` mimics the
-    released library (2.0.29), where the cached-API surface is commented out."""
+def make_fake_uia():
+    """Build a fake uiautomation module shaped like the released library."""
     mod = types.SimpleNamespace()
     desktop, notepad, _ = _build_tree()
     mod.PropertyId = types.SimpleNamespace(**_PROP_IDS)
@@ -146,50 +144,12 @@ def make_fake_uia(with_cache=True):
     mod.ControlType = types.SimpleNamespace(WindowControl=50032)
     mod.GetRootControl = lambda: desktop
     mod.GetForegroundControl = lambda: notepad
-    if with_cache:
-        built = []
-
-        class _Request:
-            def __init__(self):
-                self.properties = []
-                self.patterns = []
-                self.TreeScope = None
-                self.AutomationElementMode = None
-                self.released = False
-
-            def AddProperty(self, prop_id):
-                self.properties.append(prop_id)
-                return self
-
-            def AddPattern(self, pattern_id):
-                self.patterns.append(pattern_id)
-                return self
-
-            def Release(self):
-                self.released = True
-
-        def build_updated_cache(request):
-            built.append(request)
-            return notepad  # cached view of the same tree
-
-        notepad.BuildUpdatedCache = build_updated_cache
-        mod.CacheRequest = _Request
-        mod.TreeScope_Subtree = 5
-        mod.AutomationElementMode_Full = 0
-        mod._built = built  # test hook
     return mod
 
 
 @pytest.fixture
 def fake_uia(monkeypatch):
-    mod = make_fake_uia(with_cache=True)
-    monkeypatch.setattr(snap, "_uia", mod)
-    return mod
-
-
-@pytest.fixture
-def fake_uia_no_cache(monkeypatch):
-    mod = make_fake_uia(with_cache=False)
+    mod = make_fake_uia()
     monkeypatch.setattr(snap, "_uia", mod)
     return mod
 
@@ -253,24 +213,6 @@ def test_id_format_is_hwnd_and_runtime_id(fake_uia):
 # full mode
 # --------------------------------------------------------------------------
 
-def test_full_mode_uses_cache_request_and_releases(fake_uia):
-    s = snap.snapshot(mode="full", depth=3)
-    assert len(fake_uia._built) == 1
-    request = fake_uia._built[0]
-
-    # the cache request carried props + patterns + scope
-    assert snap._NAME_PROP in request.properties
-    assert snap._RUNTIME_ID_PROP in request.properties
-    assert snap._INVOKE_PATTERN in request.patterns
-    assert request.TreeScope is not None
-
-    # try/finally release happened
-    assert request.released is True
-
-    # full mode walks past the direct children: grandchild now present
-    assert "100:42,3" in {e.id for e in s.elements}
-
-
 def test_full_mode_depth_limit(fake_uia):
     shallow = snap.snapshot(mode="full", depth=2)
     assert "100:42,3" not in {e.id for e in shallow.elements}
@@ -278,8 +220,7 @@ def test_full_mode_depth_limit(fake_uia):
     assert "100:42,3" in {e.id for e in deep.elements}
 
 
-def test_full_mode_live_fallback_without_cache_api(fake_uia_no_cache):
-    # uiautomation 2.0.29 ships the cache API commented out: same output shape.
+def test_full_mode_walks_every_window(fake_uia):
     # full mode walks every enumerated window: notepad's subtree, then calc's.
     s = snap.snapshot(mode="full", depth=3)
     assert [e.id for e in s.elements] == [
@@ -311,34 +252,12 @@ def test_unknown_root_id(fake_uia):
 # timeout (per-call budget, skip-not-hang)
 # --------------------------------------------------------------------------
 
-def test_timeout_raises_and_releases_cache(monkeypatch, cleared_exclusions):
-    """The per-window timeout still releases the cache request (finally)."""
-    state = {"released": False}
-
-    class _Request:
-        def __init__(self):
-            self.properties = []
-            self.patterns = []
-
-        def AddProperty(self, prop_id):
-            self.properties.append(prop_id)
-            return self
-
-        def AddPattern(self, pattern_id):
-            self.patterns.append(pattern_id)
-            return self
-
-        def Release(self):
-            state["released"] = True
-
+def test_timeout_raises(monkeypatch, cleared_exclusions):
+    """A provider slower than the budget is cut off instead of hanging the call."""
     slow = _SlowProviderNode("slowui.exe", 4242, 0x900, sleep_s=0.02)
-    slow.BuildUpdatedCache = lambda request: slow
     mod = types.SimpleNamespace(
         PropertyId=types.SimpleNamespace(**_PROP_IDS),
         PatternId=types.SimpleNamespace(**_PATTERN_IDS),
-        CacheRequest=_Request,
-        TreeScope_Subtree=5,
-        AutomationElementMode_Full=0,
     )
     monkeypatch.setattr(snap, "_uia", mod)
     monkeypatch.setattr(snap, "_list_windows", lambda: [slow])
@@ -347,7 +266,6 @@ def test_timeout_raises_and_releases_cache(monkeypatch, cleared_exclusions):
     # budget fires mid-walk, well before the walk could ever finish.
     with pytest.raises(snap.SnapshotTimeout):
         snap.snapshot(mode="full", depth=16, timeout_ms=100)
-    assert state["released"] is True
 
 
 def test_timeout_not_triggered_within_budget(fake_uia):

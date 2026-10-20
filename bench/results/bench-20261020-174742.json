@@ -1,0 +1,25 @@
+{
+  "stamp": "20261020-174742",
+  "kind": "driver-conformance",
+  "notes": "Effects asserted from the fixtures' own JSONL logs (external oracle); the decoy fixture proves zero wrong-target leakage. Not an LLM task benchmark and not a competitor comparison.",
+  "summary": {
+    "tasks": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "calls": 3,
+    "ms": 921.0
+  },
+  "elapsed_s": 4.5,
+  "results": [
+    {
+      "id": "T01",
+      "name": "find target window (identity)",
+      "ok": true,
+      "skipped": false,
+      "ms": 921.0,
+      "calls": 3,
+      "detail": "window=9701428:42,9701428"
+    }
+  ]
+}

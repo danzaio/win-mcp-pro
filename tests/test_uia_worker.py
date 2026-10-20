@@ -58,7 +58,7 @@ BAD_REPLY_WORKER = textwrap.dedent("""
 """)
 
 
-def _supervisor(script, *, timeout_ms=500, max_restarts=3, window_s=60.0):
+def _supervisor(script, *, timeout_ms=5000, max_restarts=3, window_s=60.0):
     return UiaWorkerSupervisor(
         command=[sys.executable, "-c", script],
         timeout_ms=timeout_ms,

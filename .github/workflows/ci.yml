@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+
+      - name: Lint
+        run: python -m ruff check win_mcp_pro tests bench
+
+      - name: Tests
+        run: python -m pytest -q
+
+  package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the wheel
+        run: |
+          python -m pip install build
+          python -m build --wheel --outdir dist
+
+      - name: Install it in a clean environment and start it
+        shell: pwsh
+        run: |
+          python -m venv "$env:RUNNER_TEMP\clean"
+          & "$env:RUNNER_TEMP\clean\Scripts\python.exe" -m pip install (Get-ChildItem dist\*.whl).FullName
+          & "$env:RUNNER_TEMP\clean\Scripts\win-mcp-pro.exe" --help
+          & "$env:RUNNER_TEMP\clean\Scripts\python.exe" -m win_mcp_pro --help
