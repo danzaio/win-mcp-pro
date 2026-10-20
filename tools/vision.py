@@ -142,7 +142,7 @@ def _save_png(rgb: bytes, width: int, height: int, tag: str) -> dict:
 
 
 def _dry() -> bool:
-    return os.environ.get("DRY_RUN") == "1"
+    return os.environ.get("DRY_RUN", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 class ScreenshotArgs(BaseModel):

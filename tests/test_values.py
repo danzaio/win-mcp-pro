@@ -400,6 +400,20 @@ def test_menu_click_finds_submenu_parented_to_window(monkeypatch):
     assert result["ok"] is True, result
     assert result["clicked"] == "Save As"
 
+def test_menu_click_uses_the_foreground_window_not_the_first_desktop_child(monkeypatch):
+    """With another window first in Z-order, the menu must come from the foreground one."""
+    parts = build_tree()
+    decoy = FakeControl("Decoy", "WindowControl", (9,), handle=999, children=[])
+    parts.root._children.insert(0, decoy)
+    install_tree(monkeypatch, parts)
+    real_window = parts.root._children[1]
+    monkeypatch.setattr(
+        values._uia, "GetForegroundControl", lambda: real_window, raising=False
+    )
+    result = values.menu_click(["File", "Save As"])
+    assert result["ok"] is True, result
+    assert result["clicked"] == "Save As"
+
 
 def test_menu_click_normalizes_accelerators_and_case(fake_uia):
     result = values.menu_click(["&file", "save as"])

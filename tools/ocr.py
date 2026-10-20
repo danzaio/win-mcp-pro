@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import io
-import os
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
@@ -41,7 +40,7 @@ class OcrError(RuntimeError):
 
 
 def _dry() -> bool:
-    return os.environ.get("DRY_RUN") == "1"
+    return vision._dry()
 
 
 def _grab(monitor: int, region: tuple[int, int, int, int] | None):

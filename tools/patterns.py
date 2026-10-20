@@ -609,7 +609,7 @@ def _summary(exc: BaseException) -> str:
 
 
 def _make_handler(action: str) -> Callable[..., dict]:
-    def handler(element_id: Any = None, /, payload: Optional[dict] = None, **kwargs: Any) -> dict:
+    def handler(element_id: Any = None, payload: Optional[dict] = None, **kwargs: Any) -> dict:
         if payload:
             kwargs.update(payload)
         if element_id is not None:

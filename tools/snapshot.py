@@ -619,12 +619,16 @@ def _window_inventory() -> list[SnapshotWindow]:
     return infos
 
 
-def _active_window_control() -> Any | None:
-    """The foreground control, promoted to its top-level window."""
-    if _uia is None:
+def _active_window_control(uia: Any = None) -> Any | None:
+    """The foreground control, promoted to its top-level window.
+
+    ``uia`` is the uiautomation module to ask; it defaults to this module's own.
+    """
+    uia = uia if uia is not None else _uia
+    if uia is None:
         return None
     control = None
-    get_foreground = getattr(_uia, "GetForegroundControl", None)
+    get_foreground = getattr(uia, "GetForegroundControl", None)
     if callable(get_foreground):
         try:
             control = get_foreground()

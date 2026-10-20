@@ -37,7 +37,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from tools import compat, query
+from tools import compat, query, snapshot
 
 log = logging.getLogger("win-mcp-pro.values")
 log.addHandler(logging.NullHandler())
@@ -526,7 +526,11 @@ def _find_menu_item(container: Any, label: str) -> Any | None:
 
 
 def _active_window() -> Any | None:
-    roots = query._roots()  # foreground window first
+    """The foreground top-level window; the first desktop child only as a fallback."""
+    foreground = snapshot._active_window_control(_uia)
+    if foreground is not None:
+        return foreground
+    roots = query._roots()
     return roots[0] if roots else None
 
 
