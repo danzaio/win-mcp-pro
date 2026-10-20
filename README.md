@@ -61,19 +61,22 @@ click x=10 y=10 with no frame or target ->
 
 ## Why another one
 
-Most of the existing servers are big and optimise for breadth. This one
-optimises for being easy to audit, because it can act as you on your desktop.
+The most-used Windows MCP server is about 24k lines of Python. This one aims to
+be small enough to read before you let it drive your desktop, because it can
+act as you.
 
 |  | win-mcp-pro | [CursorTouch/Windows-MCP](https://github.com/CursorTouch/Windows-MCP) v0.8.8 |
 | --- | --- | --- |
-| Source size | 21 files, 6.1k lines of code | 80 files, 24.0k lines of code |
+| Source size | 21 files, 6.0k lines of code | 80 files, 24.0k lines of code |
 | Python | 3.11+ | 3.14+ |
-| Tools | 54 | 38 |
+| Tools | 54 | 21 |
 
 Source size is lines of Python excluding blanks and comments, counted on
 2026-10-20. It is a measure of how much you have to read, not of quality.
-Windows-MCP is the more widely used project and has features this one does
-not, including a desktop overlay and HTTP transports.
+This one has **more** tools, not fewer: most are small and single-purpose, and
+that is a larger surface to review. It is why `--read-only` and `--tools`
+exist. Windows-MCP is the more widely used project and has features this one
+does not, including a desktop overlay and HTTP transports.
 
 What this one does that is worth checking for yourself:
 
@@ -140,6 +143,19 @@ at the first step whose result differs (`DRIFT`).
 - Tested on Windows 10 Pro (build 19045) with Notepad and disposable WinForms
   and Tk fixtures. Windows 11 is supported by the API but untested by me. That
   is not a claim that every application works.
+
+## Troubleshooting
+
+- **A tool is missing in the client.** Check `--tools`, `--exclude-tools` and
+  `--read-only` first, then list what is registered:
+  `python -c "from win_mcp_pro import tools; tools.load_all_modules(); print(sorted(tools.names()))"`
+- **The client says the server died right after start.** Something wrote to
+  stdout, which is the protocol channel. Logs belong on stderr.
+- **`find` returns `NOT_FOUND` for something you can see.** The app probably
+  has no UI Automation provider. Check with Inspect.exe from the Windows SDK or
+  Accessibility Insights before blaming the query.
+- **`ELEVATION_REQUIRED`.** The target runs elevated and the server does not.
+  Restart the server elevated, or pick another target.
 
 ## Develop
 
