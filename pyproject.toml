@@ -31,6 +31,8 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/danzaio/win-mcp-pro"
 Issues = "https://github.com/danzaio/win-mcp-pro/issues"
+Changelog = "https://github.com/danzaio/win-mcp-pro/blob/master/CHANGELOG.md"
+Security = "https://github.com/danzaio/win-mcp-pro/blob/master/SECURITY.md"
 
 [project.scripts]
 win-mcp-pro = "win_mcp_pro.server.main:main"

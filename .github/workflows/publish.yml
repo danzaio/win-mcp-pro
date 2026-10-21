@@ -9,6 +9,9 @@ permissions:
 
 jobs:
   pypi:
+    # Skipped until PyPI trusted publishing is set up and PUBLISH_PYPI=true is
+    # added under Settings > Secrets and variables > Actions > Variables.
+    if: vars.PUBLISH_PYPI == 'true'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
