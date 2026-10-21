@@ -1,0 +1,34 @@
+<svg viewBox="0 0 960 396" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="demo-title demo-desc">
+  <title id="demo-title">A real session against Notepad</title>
+  <desc id="demo-desc">An MCP client lists windows, finds the Notepad Edit control, sets its value and reads it back as verified, then sends a blind click that is refused with FRAME_REQUIRED before any input event.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a1627"/><stop offset="1" stop-color="#08111f"/></linearGradient>
+    <clipPath id="c0"><rect x="32" y="78" width="896" height="26"><animate attributeName="width" dur="18.0s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.0333;0.0639;0.93;0.9301;1" values="0;0;896;896;0;0"/></rect></clipPath>
+    <clipPath id="c1"><rect x="32" y="104" width="896" height="26"><animate attributeName="width" dur="18.0s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.1222;0.1528;0.93;0.9301;1" values="0;0;896;896;0;0"/></rect></clipPath>
+    <clipPath id="c2"><rect x="32" y="130" width="896" height="26"><animate attributeName="width" dur="18.0s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.2222;0.2528;0.93;0.9301;1" values="0;0;896;896;0;0"/></rect></clipPath>
+    <clipPath id="c3"><rect x="32" y="156" width="896" height="26"><animate attributeName="width" dur="18.0s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.3222;0.3528;0.93;0.9301;1" values="0;0;896;896;0;0"/></rect></clipPath>
+    <clipPath id="c4"><rect x="32" y="182" width="896" height="26"><animate attributeName="width" dur="18.0s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.4222;0.4528;0.93;0.9301;1" values="0;0;896;896;0;0"/></rect></clipPath>
+    <clipPath id="c5"><rect x="32" y="208" width="896" height="26"><animate attributeName="width" dur="18.0s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.5333;0.5639;0.93;0.9301;1" values="0;0;896;896;0;0"/></rect></clipPath>
+    <clipPath id="c6"><rect x="32" y="234" width="896" height="26"><animate attributeName="width" dur="18.0s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.5889;0.6194;0.93;0.9301;1" values="0;0;896;896;0;0"/></rect></clipPath>
+    <clipPath id="c7"><rect x="32" y="260" width="896" height="26"><animate attributeName="width" dur="18.0s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.6167;0.6472;0.93;0.9301;1" values="0;0;896;896;0;0"/></rect></clipPath>
+    <clipPath id="c8"><rect x="32" y="286" width="896" height="26"><animate attributeName="width" dur="18.0s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.6333;0.6639;0.93;0.9301;1" values="0;0;896;896;0;0"/></rect></clipPath>
+    <clipPath id="c9"><rect x="32" y="312" width="896" height="26"><animate attributeName="width" dur="18.0s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.7000;0.7306;0.93;0.9301;1" values="0;0;896;896;0;0"/></rect></clipPath>
+  </defs>
+  <rect width="960" height="396" rx="14" fill="url(#bg)" stroke="#2b4a73"/>
+  <path d="M0 14A14 14 0 0 1 14 0H946A14 14 0 0 1 960 14V44H0z" fill="#12263f"/>
+  <circle cx="26" cy="22" r="6" fill="#ff5f57"/>
+  <circle cx="48" cy="22" r="6" fill="#febc2e"/>
+  <circle cx="70" cy="22" r="6" fill="#28c840"/>
+  <text x="480" y="27" text-anchor="middle" font-family="Cascadia Mono, Consolas, ui-monospace, Menlo, monospace" font-size="13" fill="#8fa9c6">MCP client  ⇄  win-mcp-pro  ·  stdio</text>
+  <g clip-path="url(#c0)"><text x="36" y="96" font-family="Cascadia Mono, Consolas, ui-monospace, Menlo, monospace" font-size="13.5" xml:space="preserve"><tspan fill="#60cdff">tools/list   </tspan><tspan fill="#6f8db0">-&gt; </tspan><tspan fill="#d3e6f8">['click', 'find', 'get_value', 'list_windows', 'set_value']</tspan></text></g>
+  <g clip-path="url(#c1)"><text x="36" y="122" font-family="Cascadia Mono, Consolas, ui-monospace, Menlo, monospace" font-size="13.5" xml:space="preserve"><tspan fill="#60cdff">list_windows </tspan><tspan fill="#6f8db0">-&gt; </tspan><tspan fill="#d3e6f8">{"hwnd": 20449106, "title": "Sem título - Bloco de Notas", "pid": 75792, "visible": true}</tspan></text></g>
+  <g clip-path="url(#c2)"><text x="36" y="148" font-family="Cascadia Mono, Consolas, ui-monospace, Menlo, monospace" font-size="13.5" xml:space="preserve"><tspan fill="#60cdff">find Edit    </tspan><tspan fill="#6f8db0">-&gt; </tspan><tspan fill="#d3e6f8">{"ok": true, "element": {"id": "20449106:42,46794936", "kind": "Edit", ...}}</tspan></text></g>
+  <g clip-path="url(#c3)"><text x="36" y="174" font-family="Cascadia Mono, Consolas, ui-monospace, Menlo, monospace" font-size="13.5" xml:space="preserve"><tspan fill="#60cdff">set_value    </tspan><tspan fill="#6f8db0">-&gt; </tspan><tspan fill="#d3e6f8">{"ok": true, "before": "", "after": "hello from an MCP client", </tspan><tspan fill="#3ddc97">"verified": true</tspan><tspan fill="#d3e6f8">}</tspan></text></g>
+  <g clip-path="url(#c4)"><text x="36" y="200" font-family="Cascadia Mono, Consolas, ui-monospace, Menlo, monospace" font-size="13.5" xml:space="preserve"><tspan fill="#60cdff">get_value    </tspan><tspan fill="#6f8db0">-&gt; </tspan><tspan fill="#d3e6f8">{"ok": true, "value": "hello from an MCP client"}</tspan></text></g>
+  <g clip-path="url(#c5)"><text x="36" y="226" font-family="Cascadia Mono, Consolas, ui-monospace, Menlo, monospace" font-size="13.5" xml:space="preserve"><tspan fill="#60cdff">click x=10 y=10 </tspan><tspan fill="#6f8db0">(no frame, no target)</tspan></text></g>
+  <g clip-path="url(#c6)"><text x="36" y="252" font-family="Cascadia Mono, Consolas, ui-monospace, Menlo, monospace" font-size="13.5" xml:space="preserve"><tspan fill="#6f8db0">  -&gt; </tspan><tspan fill="#d3e6f8">{"ok": false, "error": </tspan><tspan fill="#ff8a8a">"FRAME_REQUIRED"</tspan><tspan fill="#d3e6f8">, "reason": "coordinate input needs the frame id</tspan></text></g>
+  <g clip-path="url(#c7)"><text x="36" y="278" font-family="Cascadia Mono, Consolas, ui-monospace, Menlo, monospace" font-size="13.5" xml:space="preserve"><tspan fill="#d3e6f8">     from a fresh screenshot/zoom (pass frame=..., or start the server with</tspan></text></g>
+  <g clip-path="url(#c8)"><text x="36" y="304" font-family="Cascadia Mono, Consolas, ui-monospace, Menlo, monospace" font-size="13.5" xml:space="preserve"><tspan fill="#d3e6f8">     --input-unrestricted for raw desktop coordinates)"}</tspan></text></g>
+  <g clip-path="url(#c9)"><text x="36" y="330" font-family="Cascadia Mono, Consolas, ui-monospace, Menlo, monospace" font-size="13.5" xml:space="preserve"><tspan fill="#e0b341">  # refused before any input event was sent</tspan></text></g>
+  <text x="36" y="374" font-family="Cascadia Mono, Consolas, ui-monospace, Menlo, monospace" font-size="12" fill="#5d7a9c">Output trimmed with ...  ·  Windows in Portuguese, so the window is titled "Sem título - Bloco de Notas"</text>
+</svg>

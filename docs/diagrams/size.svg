@@ -1,0 +1,48 @@
+<svg viewBox="0 0 960 362" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="size-title size-desc">
+  <title id="size-title">How much you have to read</title>
+  <desc id="size-desc">win-mcp-pro has 6.0 thousand lines of Python in 21 files and 54 tools. CursorTouch Windows-MCP v0.8.8 has 24.0 thousand lines in 80 files and 21 tools. Counted on 2026-10-20.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a1627"/><stop offset="1" stop-color="#08111f"/></linearGradient>
+    <linearGradient id="me" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0078d4"/><stop offset="1" stop-color="#60cdff"/></linearGradient>
+  </defs>
+  <rect width="960" height="362" rx="16" fill="url(#bg)" stroke="#2b4a73"/>
+
+  <g font-family="Segoe UI, system-ui, -apple-system, sans-serif">
+    <text x="40" y="52" font-size="22" font-weight="600" fill="#e6f2ff">How much you have to read</text>
+    <rect x="560" y="36" width="14" height="14" rx="3" fill="url(#me)"/>
+    <text x="582" y="48" font-size="14" fill="#cfe3f7">win-mcp-pro</text>
+    <rect x="690" y="36" width="14" height="14" rx="3" fill="#4a5f7a"/>
+    <text x="712" y="48" font-size="14" fill="#cfe3f7">Windows-MCP v0.8.8</text>
+  </g>
+
+  <g font-family="Segoe UI, system-ui, -apple-system, sans-serif" font-size="15" fill="#9fb9d6">
+    <text x="40" y="118">Lines of Python</text>
+    <text x="40" y="198">Source files</text>
+    <text x="40" y="278">Tools exposed</text>
+  </g>
+
+  <g font-family="Cascadia Mono, Consolas, ui-monospace, monospace" font-size="14">
+    <!-- lines: 6.0k vs 24.0k, scale 560 = 24.0k -->
+    <rect x="230" y="92" width="140" height="22" rx="4" fill="url(#me)"/>
+    <text x="382" y="108" fill="#bfe6ff">6.0k</text>
+    <rect x="230" y="118" width="560" height="22" rx="4" fill="#4a5f7a"/>
+    <text x="802" y="134" fill="#9fb9d6">24.0k</text>
+
+    <!-- files: 21 vs 80, scale 560 = 80 -->
+    <rect x="230" y="172" width="147" height="22" rx="4" fill="url(#me)"/>
+    <text x="389" y="188" fill="#bfe6ff">21</text>
+    <rect x="230" y="198" width="560" height="22" rx="4" fill="#4a5f7a"/>
+    <text x="802" y="214" fill="#9fb9d6">80</text>
+
+    <!-- tools: 54 vs 21, scale 560 = 54 -->
+    <rect x="230" y="252" width="560" height="22" rx="4" fill="url(#me)"/>
+    <text x="802" y="268" fill="#bfe6ff">54</text>
+    <rect x="230" y="278" width="218" height="22" rx="4" fill="#4a5f7a"/>
+    <text x="460" y="294" fill="#9fb9d6">21</text>
+  </g>
+
+  <g font-family="Segoe UI, system-ui, -apple-system, sans-serif" font-size="12.5" fill="#6f8db0">
+    <text x="40" y="334">Python excluding blanks and comments, counted 2026-10-20. Each row has its own scale.</text>
+    <text x="40" y="350">Less to read is not the same as better, and more tools is a bigger surface to review.</text>
+  </g>
+</svg>
