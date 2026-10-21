@@ -268,7 +268,9 @@ real bugs, each fixed with a regression test. Details and honest scope are in
 
 - It only sees what an app exposes through UI Automation. Games, canvases and
   some Electron or custom-drawn UIs expose little. `ocr_read` reads pixels as a
-  fallback; the server never switches to screenshots on its own.
+  fallback; the server never switches to screenshots on its own. OCR needs
+  `winsdk`, which has no wheels for Python 3.13 yet, so on 3.13 and newer
+  `ocr_read` and `ocr_click` answer `UNAVAILABLE` and everything else works.
 - An unelevated server cannot send input to an elevated window (Windows UIPI).
   It reports `ELEVATION_REQUIRED`. Run it unelevated unless you must.
 - Time budgets are checked between UIA calls. They cannot interrupt a COM call

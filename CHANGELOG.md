@@ -8,7 +8,9 @@ First tagged release. `0.x` was a private working tree.
 - Packaged as one `win_mcp_pro` package with a `win-mcp-pro` command, so
   `uvx win-mcp-pro` works. The old top-level `server` and `tools` packages are
   gone; they would have collided in `site-packages`.
-- Windows-only dependencies carry `sys_platform == 'win32'` markers.
+- Windows-only dependencies carry `sys_platform == 'win32'` markers. `winsdk`
+  is skipped on Python 3.13+, where it has no wheels and pip would compile it
+  from source; `ocr_read` and `ocr_click` report `UNAVAILABLE` there.
 - Cut from 83 tools to 54 and from 10.3k to 7.6k lines. Removed: the browser
   and CDP tools, `powershell`, `fs_*`, `registry_get`, `notify`, `env_get`,
   `scrape_dom`, `img_convert`, `code_goto`, `win_topmost`, `color_at`,

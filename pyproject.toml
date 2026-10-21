@@ -25,7 +25,7 @@ dependencies = [
     "comtypes; sys_platform == 'win32'",
     "mss",
     "pillow",
-    "winsdk>=1.0.0b10; sys_platform == 'win32'",
+    "winsdk>=1.0.0b10; sys_platform == 'win32' and python_version < '3.13'",
 ]
 
 [project.urls]
