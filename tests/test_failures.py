@@ -106,9 +106,9 @@ def _patch_everywhere(monkeypatch, names: list[str], value) -> list[str]:
     """Install a seam on every module that declares it (aliases may be bound
     at import time, so patching only the definition module is not enough)."""
     patched = []
-    for modname in ("tools.winproc", "tools.snapshot", "tools.query",
-                    "tools.patterns", "tools.values", "tools.transact",
-                    "server.main", "server.registry", "server.security"):
+    for modname in ("win_mcp_pro.tools.winproc", "win_mcp_pro.tools.snapshot", "win_mcp_pro.tools.query",
+                    "win_mcp_pro.tools.patterns", "win_mcp_pro.tools.values",
+                    "win_mcp_pro.server.main", "win_mcp_pro.server.registry", "win_mcp_pro.server.security"):
         mod = _opt(modname)
         if mod is None:
             continue
@@ -152,8 +152,7 @@ class IdempotencyLedger:
 
     The oracle for this file: it decides per delivery whether the effect
     should apply, so the assertions do not trust the tool's bookkeeping.
-    The real key in tools.transact extends the triple with an args hash;
-    every delivery pair below differs on the triple itself, so both agree.
+    Every delivery pair below differs on the triple itself.
     """
 
     def __init__(self):
@@ -309,26 +308,26 @@ SNAPSHOT_SEAMS = ("_active_window_control", "_window_controls", "_list_windows",
 def _patch_snapshot_seams(monkeypatch, active, window_controls, list_windows) -> list[str]:
     """Patch whichever provider seams tools.snapshot actually exposes."""
     patched = _patch_everywhere(monkeypatch, list(SNAPSHOT_SEAMS), active)
-    snapshot = _opt("tools.snapshot")
+    snapshot = _opt("win_mcp_pro.tools.snapshot")
     if snapshot is not None:
         if hasattr(snapshot, "_active_window_control"):
             monkeypatch.setattr(snapshot, "_active_window_control",
                                 lambda: active, raising=False)
-            patched.append("tools.snapshot._active_window_control")
+            patched.append("win_mcp_pro.tools.snapshot._active_window_control")
         if hasattr(snapshot, "_window_controls"):
             monkeypatch.setattr(snapshot, "_window_controls",
                                 lambda: window_controls, raising=False)
-            patched.append("tools.snapshot._window_controls")
+            patched.append("win_mcp_pro.tools.snapshot._window_controls")
         if hasattr(snapshot, "_list_windows"):
             monkeypatch.setattr(snapshot, "_list_windows",
                                 lambda: list_windows, raising=False)
-            patched.append("tools.snapshot._list_windows")
+            patched.append("win_mcp_pro.tools.snapshot._list_windows")
     return patched
 
 
 def _register_exclusion(monkeypatch, name: str) -> bool:
     """Register `name` in the exclusion seam the snapshot/proc slice exposes."""
-    for owner in ("tools.winproc", "tools.snapshot"):
+    for owner in ("win_mcp_pro.tools.winproc", "win_mcp_pro.tools.snapshot"):
         mod = _opt(owner)
         if mod is None:
             continue
@@ -358,7 +357,7 @@ def test_slow_provider_skipped_when_excluded(monkeypatch):
     spec §5: "exclude_proc antes de qualquer traversal (árvore lenta nunca é
     entrada)". Skip when the slice has not exposed the seam yet.
     """
-    snapshot = _mod("tools.snapshot")
+    snapshot = _mod("win_mcp_pro.tools.snapshot")
 
     slow = _SlowNode("slowui.exe", 4242, 0x900, "WindowControl",
                      sleep_s=0.5, fanout=6, levels=3)
@@ -373,7 +372,7 @@ def test_slow_provider_skipped_when_excluded(monkeypatch):
             "provider before any traversal — the contract assertions below are "
             "ready for the slice that lands it"
         )
-    winproc = _opt("tools.winproc")
+    winproc = _opt("win_mcp_pro.tools.winproc")
     if winproc is not None:
         monkeypatch.setattr(
             winproc,
@@ -385,7 +384,7 @@ def test_slow_provider_skipped_when_excluded(monkeypatch):
         )
 
     snap_fn = _resolve(snapshot, ["snapshot", "take_snapshot", "capture"])
-    assert snap_fn is not None, "tools.snapshot exposes no snapshot()"
+    assert snap_fn is not None, "win_mcp_pro.tools.snapshot exposes no snapshot()"
 
     started = time.monotonic()
     call = Deadline(HANG_BUDGET_S)
@@ -420,7 +419,7 @@ def test_slow_provider_times_out_per_call(monkeypatch):
     budget the walk needs ~20s; with it the call must come back in ~0.6s with
     the typed SNAPSHOT_TIMEOUT skip (or a partial capture).
     """
-    snapshot = _mod("tools.snapshot")
+    snapshot = _mod("win_mcp_pro.tools.snapshot")
 
     slow = _SlowNode("slowui.exe", 4242, 0x900, "WindowControl",
                      sleep_s=0.5, fanout=6, levels=3)
@@ -429,7 +428,7 @@ def test_slow_provider_times_out_per_call(monkeypatch):
     assert patched, "no provider seam in tools.snapshot to inject the mock"
 
     snap_fn = _resolve(snapshot, ["snapshot", "take_snapshot", "capture"])
-    assert snap_fn is not None, "tools.snapshot exposes no snapshot()"
+    assert snap_fn is not None, "win_mcp_pro.tools.snapshot exposes no snapshot()"
 
     call = Deadline(HANG_BUDGET_S)
     started = time.monotonic()
@@ -473,67 +472,6 @@ def test_slow_provider_times_out_per_call(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_duplicate_delivery_single_effect():
-    """Same (window, element, action) delivered twice -> exactly one effect."""
-    transact = _mod("tools.transact")
-    transact.reset()
-
-    counter = CountableAction()
-    ActionIn = transact.ActionIn
-
-    delivery = ActionIn(
-        window="notepad.exe:notes.txt - Notepad",
-        element="edit:document",
-        action="set_value",
-        args={"text": "hello"},
-    )
-    other = ActionIn(
-        window="notepad.exe:notes.txt - Notepad",
-        element="button:Save",
-        action="invoke",
-    )
-
-    first = transact.execute_action(delivery, executor=counter)
-    assert first.get("ok") is True and not first.get("deduped"), (
-        f"first delivery did not execute: {_text(first)[:200]}"
-    )
-    replay = transact.execute_action(delivery, executor=counter)  # retry, same key
-    distinct = transact.execute_action(other, executor=counter)
-
-    assert replay.get("deduped") is True, (
-        f"duplicate delivery was not deduplicated: {_text(replay)[:200]}; the "
-        "idempotency key (window, element, action) must collapse a replay"
-    )
-    assert counter.count == 2, (
-        f"expected exactly 2 effects (first + distinct target), counter saw "
-        f"{counter.count}: {[getattr(c, 'element', '?') for c in counter.calls]}"
-    )
-
-    # local oracle: the (window, element, action) contract computed in-test
-    ledger = IdempotencyLedger()
-    deliveries = [
-        {"window": delivery.window, "element": delivery.element, "action": delivery.action},
-        {"window": delivery.window, "element": delivery.element, "action": delivery.action},
-        {"window": other.window, "element": other.element, "action": other.action},
-    ]
-    expected = ledger.expected_effects(deliveries)
-    assert counter.count == expected, (
-        f"counter ({counter.count}) disagrees with the local idempotency "
-        f"contract ({expected} effects for 3 deliveries, one a duplicate)"
-    )
-
-    # the replay must be visible as a replay, not a silent second effect
-    peek = transact.dry_run(delivery)
-    assert peek.get("deduped") is True and peek.get("would_execute") is False, (
-        f"dry_run after a completed action must report the dedupe hit: "
-        f"{_text(peek)[:200]}"
-    )
-    marked = transact.check_and_mark(delivery)
-    assert marked.get("deduped") is True, (
-        "check_and_mark() does not recognise the already-delivered action"
-    )
-
-
 # ---------------------------------------------------------------------------
 # Review Focus 3 — elevated target: ELEVATION_REQUIRED typed error
 # ---------------------------------------------------------------------------
@@ -541,9 +479,8 @@ def test_duplicate_delivery_single_effect():
 
 def test_elevated_target_typed_error(monkeypatch):
     """check_uipi on a higher-integrity target -> ELEVATION_REQUIRED, fast."""
-    security = _mod("server.security")
+    security = _mod("win_mcp_pro.server.security")
 
-    own_rid, target_rid = security.integrity_rid, None
     target_pid = 4242
 
     def fake_rid(pid):
@@ -571,7 +508,7 @@ def test_elevated_target_typed_error(monkeypatch):
 
 def test_elevated_target_control_equal_integrity(monkeypatch):
     """Non-elevated target -> ok (guards the test above against always-error)."""
-    security = _mod("server.security")
+    security = _mod("win_mcp_pro.server.security")
 
     monkeypatch.setattr(security, "integrity_rid", lambda pid: 0x2000)
     call = Deadline(10.0)
@@ -587,66 +524,6 @@ def test_elevated_target_control_equal_integrity(monkeypatch):
 # ---------------------------------------------------------------------------
 # Review Focus 4 — double-submit retry: exactly-once via before/after log
 # ---------------------------------------------------------------------------
-
-
-def test_double_submit_exactly_once():
-    """Retry of a form submit -> one execution; before_after proves it."""
-    transact = _mod("tools.transact")
-    transact.reset()
-
-    counter = CountableAction()
-    submit = transact.ActionIn(
-        window="settings.exe:Bluetooth & devices",
-        element="button:Submit",
-        action="submit",
-    )
-
-    preview = transact.preview(submit)
-    assert preview.get("irreversible") is True, (
-        f"'submit' must be previewed as irreversible: {_text(preview)[:200]}"
-    )
-    confirmed = submit.model_copy(update={"preview_id": preview["preview_id"]})
-
-    first = transact.execute_action(confirmed, executor=counter)
-    assert first.get("ok") is True and not first.get("deduped"), (
-        f"confirmed submit did not execute: {_text(first)[:200]}"
-    )
-    retry = transact.execute_action(confirmed, executor=counter)  # double submit
-
-    assert counter.count == 1, (
-        f"double submit executed {counter.count} times; exactly-once requires "
-        "the retry to be recognised instead of re-run"
-    )
-    blocked = retry.get("deduped") is True or retry.get("ok") is False
-    assert blocked, (
-        f"the retry was neither deduped nor rejected: {_text(retry)[:200]}"
-    )
-
-    # before_after is the retry evidence: exactly one execution in the log
-    entry = transact.before_after(first["action_id"])
-    assert entry.get("ok") is True, f"before_after lost the execution: {entry}"
-    record = entry["entry"]
-    assert record["deduped"] is False and record["ok"] is True, (
-        f"the recorded submit is not a clean single execution: {_text(record)[:200]}"
-    )
-    assert record.get("before") is not None and record.get("after") is not None, (
-        "before_after entry has no before/after state; the log cannot prove "
-        "what changed between the attempt and the retry"
-    )
-
-    log = transact.recent()
-    executions = [
-        e for e in log
-        if e.get("window") == submit.window
-        and e.get("element") == submit.element
-        and e.get("action") == submit.action
-        and e.get("deduped") is False
-        and e.get("ok") is True  # a rejected retry is logged too, but is no execution
-    ]
-    assert len(executions) == 1, (
-        f"the before_after log shows {len(executions)} executions of the same "
-        "submit; exactly-once means a single execution record"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -707,7 +584,7 @@ def _install_tree(monkeypatch, query, windows) -> None:
 
 def test_find_finds_present_element_control(monkeypatch):
     """Control: with a healthy tree, find() must resolve the element."""
-    query = _mod("tools.query")
+    query = _mod("win_mcp_pro.tools.query")
     _install_tree(monkeypatch, query, [_NamedRoot()])
 
     call = Deadline(20.0)
@@ -725,7 +602,7 @@ def test_find_finds_present_element_control(monkeypatch):
 
 def test_missing_element_not_found_with_vision_hint(monkeypatch):
     """Custom-render app: NOT_FOUND with reason + vision fallback, no guessing."""
-    query = _mod("tools.query")
+    query = _mod("win_mcp_pro.tools.query")
     _install_tree(monkeypatch, query, [_CustomRenderRoot()])
 
     call = Deadline(20.0)

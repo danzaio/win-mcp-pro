@@ -15,7 +15,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:  # keep the slice self-contained (repo has no packages yet)
     sys.path.insert(0, str(ROOT))
 
-from tools import patterns  # noqa: E402
+from win_mcp_pro.tools import patterns  # noqa: E402
 
 # UIA pattern ids (stable, documented in PatternId of the uiautomation package).
 PID = {

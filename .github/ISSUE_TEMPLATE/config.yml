@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/danzaio/win-mcp-pro/security/advisories/new
+    about: A refused call that still sends input, or an action on the wrong window. Please do not file these publicly.

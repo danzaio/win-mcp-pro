@@ -1,11 +1,11 @@
 # bench - driver-conformance matrix
 
-```
-python bench/run_matrix.py
+```powershell
+.venv\Scripts\python.exe bench\run_matrix.py
 ```
 
-Spawns disposable fixtures and the MCP server over stdio, then runs 24
-deterministic tasks. Every observable effect is written by the fixture
+Spawns disposable fixtures and the MCP server over stdio, then runs 28
+tasks. Every observable effect is written by the fixture
 process itself to a JSONL log; the runner asserts against those logs (the
 external oracle), so a green run means the effect happened in the
 application, not just that the server replied `ok`. A decoy fixture's log
@@ -24,14 +24,20 @@ Fixtures:
 Tasks: identity find, set_value + readback, invoke, wait_text,
 wait_enabled, frame-pinned click, unknown-frame refusal, wrong-target
 refusal + leak check, dump_tree, ocr_read, Tk coordinate click, replay
-with id binding, doctor.
+with id binding, doctor, cursor_position, double_click, ocr_click,
+wait_change, displays, form_fill, table_extract, choose_file (a real Open
+dialog in Notepad), win_close, get_active_window, open_default (including a
+refused missing path), type_text, key_hold, a stepped drag, win_shot.
 
 Run it on an idle desktop: it moves the real cursor and asserts effects on
 its own windows; concurrent physical mouse activity can disrupt a synthetic
-click.
+click. Timing checks (the double-click gap, for one) are read from the
+fixture's own log, which lags on a loaded machine, so rerun a failing task
+with `--only` before treating it as a product bug.
 
-Results land in `bench/results/bench-<stamp>.{json,md}`; the exit code is
-non-zero if any task fails. `--only T01,T06` runs a subset while debugging.
+Results land in `bench/results/bench-<stamp>.{json,md}`. They are
+machine-specific and git-ignored. The exit code is non-zero if any task
+fails. `--only T01,T06` runs a subset while debugging.
 
 ## What it caught
 

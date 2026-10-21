@@ -1,8 +1,7 @@
 """Tests for the documented pack (post-P0).
 
 ``form_fill`` / ``table_extract`` / ``choose_file`` (tools.values),
-``displays`` / ``img_convert`` (tools.vision) and ``code_goto`` /
-``win_close`` / ``win_topmost`` (tools.winproc). Every seam is swappable:
+``displays`` (tools.vision) and ``win_close`` (tools.winproc). Every seam is swappable:
 fake UIA controls, fake display enumeration, real Pillow on tmp files, and
 a fake user32/process layer - no screen, no real input, no editor launch.
 """
@@ -11,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from tools import query, values, vision, winproc
+from win_mcp_pro.tools import query, values, vision, winproc
 
 
 # --------------------------------------------------------------------------
@@ -278,59 +277,8 @@ def _png(path, w=120, h=80):
     Image.new("RGB", (w, h), "white").save(path)
 
 
-def test_img_convert_reencodes_and_resizes(tmp_path):
-    src = tmp_path / "in.png"
-    _png(str(src))
-    out = tmp_path / "out.jpg"
-    result = vision.handler_img_convert({"path": str(src), "format": "jpeg",
-                                         "output": str(out), "max_width": 60})
-    assert result["ok"] is True, result
-    assert result["format"] == "jpeg" and result["width"] == 60, result
-    assert out.stat().st_size > 0
-
-
-def test_img_convert_writes_pdf(tmp_path):
-    src = tmp_path / "in.png"
-    _png(str(src))
-    out = tmp_path / "out.pdf"
-    result = vision.handler_img_convert({"path": str(src), "format": "pdf",
-                                         "output": str(out)})
-    assert result["ok"] is True and out.stat().st_size > 0, result
-
-
-def test_img_convert_missing_source_is_typed(tmp_path):
-    result = vision.handler_img_convert({"path": str(tmp_path / "ghost.png")})
-    assert result["ok"] is False and result["error"] == "FILE_NOT_FOUND", result
-
-
-def test_img_convert_refuses_to_overwrite_its_input(tmp_path):
-    src = tmp_path / "in.png"
-    _png(str(src))
-    result = vision.handler_img_convert({"path": str(src), "format": "png",
-                                         "output": str(src)})
-    assert result["ok"] is False and result["error"] == "INPUT_PROTECTED", result
-
-
 # --------------------------------------------------------------------------
-# code_goto / win_close / win_topmost
-
-
-def test_code_goto_launches_the_cli_at_line(monkeypatch, tmp_path):
-    target = tmp_path / "note.txt"
-    target.write_text("a\nb\n", encoding="utf-8")
-    monkeypatch.setattr(winproc, "_find_code_cli", lambda: "C:\\code\\code.cmd")
-    launched = {}
-
-    def create(path, cmdline, cwd, show):
-        launched["cmdline"] = cmdline
-        return {"pid": 1234}
-
-    monkeypatch.setattr(winproc, "_create_process", create)
-    monkeypatch.setattr(winproc, "_wait_for_window", lambda pid, timeout: 5678)
-    result = _call_winproc("code_goto", {"path": str(target), "line": 2})
-    assert result["ok"] is True, result
-    assert "--goto" in launched["cmdline"] and str(target) in launched["cmdline"]
-    assert result["pid"] == 1234 and result["hwnd"] == 5678
+# win_close
 
 
 def _call_winproc(name, args):
@@ -338,21 +286,6 @@ def _call_winproc(name, args):
         if tool["name"] == name:
             return tool["handler"](args)
     raise AssertionError(f"tool not registered: {name}")
-
-
-def test_code_goto_missing_file_is_typed(tmp_path):
-    with pytest.raises(winproc.WinProcError) as exc:
-        _call_winproc("code_goto", {"path": str(tmp_path / "ghost.txt")})
-    assert exc.value.code == "FILE_NOT_FOUND"
-
-
-def test_code_goto_without_cli_is_typed(monkeypatch, tmp_path):
-    target = tmp_path / "note.txt"
-    target.write_text("x", encoding="utf-8")
-    monkeypatch.setattr(winproc, "_find_code_cli", lambda: None)
-    with pytest.raises(winproc.WinProcError) as exc:
-        _call_winproc("code_goto", {"path": str(target)})
-    assert exc.value.code == "CODE_NOT_FOUND"
 
 
 def test_win_close_posts_close_and_confirms_gone(monkeypatch):
@@ -406,18 +339,3 @@ def test_win_close_that_ignores_close_is_typed(monkeypatch):
     assert exc.value.code == "CLOSE_UNCONFIRMED"
 
 
-def test_win_topmost_pins_and_unpins(monkeypatch):
-    calls = []
-
-    class FakeUser32:
-        def IsWindow(self, hwnd):
-            return True
-
-        def SetWindowPos(self, hwnd, after, x, y, w, h, flags):
-            calls.append((hwnd, after, flags))
-            return True
-
-    monkeypatch.setattr(winproc, "_user32", FakeUser32())
-    assert _call_winproc("win_topmost", {"hwnd": 7, "on": True})["state"] == "topmost"
-    assert _call_winproc("win_topmost", {"hwnd": 7, "on": False})["state"] == "normal"
-    assert [c[1] for c in calls] == [-1, -2]

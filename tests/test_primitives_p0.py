@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from tools import compat, ocr, vision, waits
+from win_mcp_pro.tools import compat, ocr, vision, waits
 
 
 @pytest.fixture(autouse=True)

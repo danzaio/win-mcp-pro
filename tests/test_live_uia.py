@@ -186,8 +186,8 @@ def test_stdio_uia_vertical_slice_touches_only_its_own_probe_window():
                 server_exit_file = Path({str(server_exit_file)!r})
                 Path({str(server_pid_file)!r}).write_text(str(os.getpid()), encoding="ascii")
                 atexit.register(lambda: server_exit_file.write_text("exited", encoding="ascii"))
-                sys.argv = ["server.main", "--tools", {allowed!r}]
-                runpy.run_module("server.main", run_name="__main__")
+                sys.argv = ["win_mcp_pro.server.main", "--tools", {allowed!r}]
+                runpy.run_module("win_mcp_pro.server.main", run_name="__main__")
                 """
             )
             params = StdioServerParameters(
@@ -337,7 +337,7 @@ def test_stdio_uia_vertical_slice_touches_only_its_own_probe_window():
                         )
                         assert write_result["ok"] is True
 
-                        after_write = await own_window_snapshot()
+                        await own_window_snapshot()
                         fresh_edit_id = await find_owned(input_name, "Edit")
                         assert await prop(fresh_edit_id, "value") == requested
 
@@ -346,7 +346,7 @@ def test_stdio_uia_vertical_slice_touches_only_its_own_probe_window():
                         )
                         assert invoke_result["ok"] is True
 
-                        after_invoke = await own_window_snapshot()
+                        await own_window_snapshot()
                         fresh_status_id = await find_owned(
                             status_name + " | committed", "Text"
                         )

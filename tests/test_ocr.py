@@ -13,7 +13,7 @@ import io
 import pytest
 from PIL import Image
 
-from tools import ocr, vision
+from win_mcp_pro.tools import ocr, vision
 
 
 def _png(w=200, h=80) -> bytes:

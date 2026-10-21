@@ -1,6 +1,6 @@
 """Task 12 tests: security + UIPI.
 
-Self-contained on purpose: the repo scaffold (server/__init__.py,
+Self-contained on purpose: the repo scaffold (win_mcp_pro/server/__init__.py,
 tests/__init__.py) is owned by Task 1 and may not exist yet, so the
 repo root is bootstrapped onto sys.path here. server.security must be
 import-safe on any platform.
@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from server import security  # noqa: E402
+from win_mcp_pro.server import security  # noqa: E402
 
 
 # ---------------------------------------------------------------- parse_tool_filter
@@ -30,13 +30,13 @@ class TestParseToolFilter:
         assert allow == {"invoke", "snapshot"}
 
     def test_exclude_tools_comma_list(self):
-        allow, block = security.parse_tool_filter(["--exclude-tools", "kill_proc,powershell"])
-        assert block == {"kill_proc", "powershell"}
+        allow, block = security.parse_tool_filter(["--exclude-tools", "invoke,click"])
+        assert block == {"invoke", "click"}
         assert allow is None
 
     def test_exclude_tools_equals_form(self):
-        allow, block = security.parse_tool_filter(["--exclude-tools=kill_proc"])
-        assert block == {"kill_proc"}
+        allow, block = security.parse_tool_filter(["--exclude-tools=invoke"])
+        assert block == {"invoke"}
 
     def test_both_flags_together(self):
         allow, block = security.parse_tool_filter(
@@ -74,77 +74,39 @@ class TestParseToolFilter:
         with pytest.raises(ValueError):
             security.parse_tool_filter(["--tools", "a", "--tools", "b"])
 
+# ---------------------------------------------------------------- --read-only
+class TestReadOnlyProfile:
+    def test_every_read_only_tool_exists(self):
+        """A renamed tool must not silently shrink the safe profile."""
+        from win_mcp_pro import tools
 
-# ---------------------------------------------------------------- enforce_filter
-class TestEnforceFilter:
-    def test_no_filters_allows_everything(self):
-        assert security.enforce_filter("kill_proc", None, None) is True
+        tools.clear()
+        tools.load_all_modules()
+        assert security.READ_ONLY_TOOLS <= set(tools.names())
 
-    def test_allowlist_membership(self):
-        allow = {"invoke", "find"}
-        assert security.enforce_filter("find", allow, None) is True
-        assert security.enforce_filter("kill_proc", allow, None) is False
+    def test_read_only_profile_has_no_side_effects(self):
+        forbidden = {"click", "double_click", "move", "scroll", "shortcut", "type_text",
+                     "key_hold", "clipboard_set", "set_value", "invoke", "form_fill",
+                     "app_launch", "win_close", "choose_file", "paste_text", "replay"}
+        assert not (security.READ_ONLY_TOOLS & forbidden)
 
-    def test_blocklist_rejects(self):
-        block = {"kill_proc", "powershell"}
-        assert security.enforce_filter("kill_proc", None, block) is False
-        assert security.enforce_filter("find", None, block) is True
+    def test_flag_becomes_an_allowlist(self, monkeypatch):
+        from win_mcp_pro.server import main as server_main
+        from win_mcp_pro.server import registry
 
-    def test_blocklist_wins_over_allowlist(self):
-        allow = {"invoke", "find"}
-        block = {"find"}
-        # the critical test: allowlisted AND blocklisted must be rejected
-        assert security.enforce_filter("find", allow, block) is False
-        assert security.enforce_filter("invoke", allow, block) is True
+        calls: list[dict] = []
+        monkeypatch.setattr(registry, "run_server", lambda **kwargs: calls.append(kwargs))
+        assert server_main.main(["--read-only"]) == 0
+        assert set(calls[0]["allowlist"]) == security.READ_ONLY_TOOLS
 
-    def test_empty_allowlist_denies_all_fail_closed(self):
-        # only reachable if a caller builds an empty set directly
-        assert security.enforce_filter("find", set(), None) is False
+    def test_flag_refuses_to_mix_with_an_explicit_allowlist(self, monkeypatch):
+        from win_mcp_pro.server import main as server_main
+        from win_mcp_pro.server import registry
 
-    def test_dedupe_vs_copy_is_not_required(self):
-        allow = {"a"}
-        assert security.enforce_filter("a", allow, set()) is True
-
-
-# ---------------------------------------------------------------- redact
-class TestRedact:
-    def test_masks_known_keys(self):
-        out = security.redact({"api_key": "sk-123", "tool": "invoke"})
-        assert out["api_key"] == security.MASK
-        assert out["tool"] == "invoke"
-        assert "sk-123" not in repr(out)
-
-    def test_case_insensitive_match(self):
-        out = security.redact({"Authorization": "Bearer xyz", "PASSWORD": "hunter2"})
-        assert out["Authorization"] == security.MASK
-        assert out["PASSWORD"] == security.MASK
-        assert "hunter2" not in repr(out)
-
-    def test_nested_structures(self):
-        payload = {
-            "cfg": {"token": "tkn-unique-1", "nested": {"secret": "s3cr-unique-2",
-                                                        "keep": 42}},
-            "items": [{"password": "p4ss-unique-3"}, {"note": "plain"}],
-        }
-        out = security.redact(payload)
-        assert out["cfg"]["token"] == security.MASK
-        assert out["cfg"]["nested"]["secret"] == security.MASK
-        assert out["cfg"]["nested"]["keep"] == 42
-        assert out["items"][0]["password"] == security.MASK
-        assert out["items"][1]["note"] == "plain"
-        dumped = repr(out)
-        for secret in ("tkn-unique-1", "s3cr-unique-2", "p4ss-unique-3"):
-            assert secret not in dumped
-
-    def test_non_dicts_pass_through(self):
-        assert security.redact("plain text") == "plain text"
-        assert security.redact(7) == 7
-        assert security.redact(None) is None
-
-    def test_original_not_mutated(self):
-        src = {"api_key": "sk-1", "sub": {"token": "t"}}
-        security.redact(src)
-        assert src == {"api_key": "sk-1", "sub": {"token": "t"}}
+        monkeypatch.setattr(registry, "run_server", lambda **kwargs: None)
+        with pytest.raises(SystemExit) as raised:
+            server_main.main(["--read-only", "--tools", "click"])
+        assert raised.value.code == 2
 
 
 # ---------------------------------------------------------------- check_uipi (Windows)

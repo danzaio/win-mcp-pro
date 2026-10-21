@@ -157,8 +157,8 @@ def test_frame_pinned_click_hits_only_its_target():
                 import runpy
                 import sys
 
-                sys.argv = ["server.main", "--tools", {allowed!r}]
-                runpy.run_module("server.main", run_name="__main__")
+                sys.argv = ["win_mcp_pro.server.main", "--tools", {allowed!r}]
+                runpy.run_module("win_mcp_pro.server.main", run_name="__main__")
                 """
             )
             params = StdioServerParameters(

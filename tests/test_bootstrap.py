@@ -25,7 +25,7 @@ from mcp import ClientSession
 from mcp.shared.memory import create_client_server_memory_streams
 from pydantic import BaseModel
 
-from server import audit, main, registry
+from win_mcp_pro.server import audit, main, registry
 
 
 def _process_is_running(pid: int) -> bool:
@@ -129,6 +129,15 @@ def test_allowlist_limits_visible_tools(obj_registered):
 
 def test_blocklist_hides_tool(obj_registered):
     assert [t.name for t in registry.visible_tools(blocklist=["invoke"])] == ["find"]
+
+
+def test_blocklist_wins_over_allowlist(obj_registered):
+    visible = registry.visible_tools(allowlist=["find", "invoke"], blocklist=["find"])
+    assert [t.name for t in visible] == ["invoke"]
+
+
+def test_empty_allowlist_denies_everything(obj_registered):
+    assert registry.visible_tools(allowlist=[]) == []
 
 
 def test_register_module_rejects_malformed_def():
@@ -306,9 +315,9 @@ def test_stdio_handler_exception_keeps_server_alive_and_stdout_protocol_clean(tm
         import os
         from pathlib import Path
         from pydantic import BaseModel
-        from server import registry
-        from server.audit import audit
-        from server.main import _bridge_tools_to_registry, _serve, build_server
+        from win_mcp_pro.server import registry
+        from win_mcp_pro.server.audit import audit
+        from win_mcp_pro.server.main import _bridge_tools_to_registry, _serve, build_server
 
         server_exit_file = Path({str(server_exit_file)!r})
         Path({str(server_pid_file)!r}).write_text(str(os.getpid()), encoding="ascii")
@@ -389,98 +398,8 @@ def test_stdio_handler_exception_keeps_server_alive_and_stdout_protocol_clean(tm
     assert not _process_is_running(server_pid), "stdio server process survived client shutdown"
 
 
-def test_mcp_fs_write_and_kill_proc_refusals_have_no_side_effects(
-    monkeypatch, tmp_path
-):
-    from tools import system, winproc
-
-    target = tmp_path / "must-not-exist" / "probe.txt"
-    write_calls = []
-    resolve_calls = []
-    terminate_calls = []
-
-    def write_spy(*args, **kwargs):
-        write_calls.append((args, kwargs))
-        raise AssertionError("fs_write reached its file-open boundary")
-
-    def resolve_spy(*args, **kwargs):
-        resolve_calls.append((args, kwargs))
-        raise AssertionError("fs_write reached path resolution")
-
-    def terminate_spy(*args, **kwargs):
-        terminate_calls.append((args, kwargs))
-        raise AssertionError("kill_proc reached process termination")
-
-    monkeypatch.setattr(system, "open", write_spy, raising=False)
-    monkeypatch.setattr(system, "_resolve_confined", resolve_spy)
-    monkeypatch.setattr(winproc, "_terminate_pid", terminate_spy)
-    registry.register_module(
-        [
-            next(tool for tool in system.TOOLS if tool["name"] == "fs_write"),
-            next(tool for tool in winproc.TOOLS if tool["name"] == "kill_proc"),
-        ]
-    )
-    server = main.build_server()
-
-    async def drive():
-        async with create_client_server_memory_streams() as (client_streams, server_streams):
-            server_task = asyncio.create_task(
-                server.run(
-                    *server_streams,
-                    server.create_initialization_options(),
-                    raise_exceptions=True,
-                )
-            )
-            try:
-                async with ClientSession(*client_streams) as session:
-                    await session.initialize()
-
-                    invalid_write = await session.call_tool(
-                        "fs_write", {"path": str(target)}
-                    )
-                    assert invalid_write.is_error is True
-
-                    refused_write = await session.call_tool(
-                        "fs_write",
-                        {
-                            "path": str(target),
-                            "content": "must not be written",
-                            "confirm": False,
-                        },
-                    )
-                    write_result = json.loads(refused_write.content[0].text)
-                    assert write_result["ok"] is False
-                    assert write_result["error"] == "CONFIRM_REQUIRED"
-
-                    invalid_kill = await session.call_tool(
-                        "kill_proc", {"pid": "not-a-pid", "confirm": True}
-                    )
-                    assert invalid_kill.is_error is True
-
-                    refused_kill = await session.call_tool(
-                        "kill_proc", {"pid": 2_000_000_000, "confirm": False}
-                    )
-                    assert refused_kill.is_error is True
-                    assert json.loads(refused_kill.content[0].text)["error"] == (
-                        "CONFIRM_REQUIRED"
-                    )
-            finally:
-                server_task.cancel()
-
-    asyncio.run(drive())
-    assert write_calls == []
-    assert resolve_calls == []
-    assert terminate_calls == []
-    assert not target.exists()
-    assert not target.parent.exists()
-
-
-# --- production wiring (regression: boot served 0 tools) -----------------------
-
-
 def test_production_bridge_registers_every_tool_module():
-    import tools
-
+    import win_mcp_pro.tools as tools
     try:
         count = main._bridge_tools_to_registry()
         assert count == len(tools.names()) == len(registry.registered_tools())
@@ -529,8 +448,7 @@ def test_call_handler_does_not_retry_handler_after_internal_type_error():
 
 
 def test_bridged_server_lists_and_calls_real_tool():
-    import tools
-
+    import win_mcp_pro.tools as tools
     try:
         count = main._bridge_tools_to_registry()
         server = main.build_server()
@@ -577,8 +495,8 @@ def test_stdio_subprocess_lists_and_calls_a_desktop_independent_tool(tmp_path):
         server_exit_file = Path({str(server_exit_file)!r})
         Path({str(server_pid_file)!r}).write_text(str(os.getpid()), encoding="ascii")
         atexit.register(lambda: server_exit_file.write_text("exited", encoding="ascii"))
-        sys.argv = ["server.main", "--tools", "exclude_proc"]
-        runpy.run_module("server.main", run_name="__main__")
+        sys.argv = ["win_mcp_pro.server.main", "--tools", "exclude_proc"]
+        runpy.run_module("win_mcp_pro.server.main", run_name="__main__")
         """
     )
     params = StdioServerParameters(

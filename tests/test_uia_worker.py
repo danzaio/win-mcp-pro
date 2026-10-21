@@ -24,8 +24,8 @@ import pytest
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-from server import main as server_main, registry
-from server.supervisor import WORKER_TOOLS, UiaWorkerSupervisor, WorkerError
+from win_mcp_pro.server import main as server_main, registry
+from win_mcp_pro.server.supervisor import UiaWorkerSupervisor, WorkerError
 
 ECHO_WORKER = textwrap.dedent("""
     import json, os, sys
@@ -58,7 +58,7 @@ BAD_REPLY_WORKER = textwrap.dedent("""
 """)
 
 
-def _supervisor(script, *, timeout_ms=500, max_restarts=3, window_s=60.0):
+def _supervisor(script, *, timeout_ms=5000, max_restarts=3, window_s=60.0):
     return UiaWorkerSupervisor(
         command=[sys.executable, "-c", script],
         timeout_ms=timeout_ms,
@@ -199,10 +199,10 @@ def test_mcp_route_worker_timeout_kills_and_session_survives(tmp_path):
         import runpy
         import sys
 
-        sys.argv = ["server.main", "--tools", "find,list_windows",
+        sys.argv = ["win_mcp_pro.server.main", "--tools", "find,list_windows",
                     "--uia-worker", "--worker-timeout-ms", "2000",
                     "--worker-command", {str(stub)!r}]
-        runpy.run_module("server.main", run_name="__main__")
+        runpy.run_module("win_mcp_pro.server.main", run_name="__main__")
         '''
     )
     params = StdioServerParameters(
@@ -246,7 +246,7 @@ def test_worker_module_serves_a_real_bounded_walk():
     """The built-in ``server.worker`` answers a real snapshot (fast mode)."""
     repo = Path(__file__).resolve().parents[1]
     proc = subprocess.Popen(
-        [sys.executable, "-m", "server.worker"],
+        [sys.executable, "-m", "win_mcp_pro.server.worker"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         text=True,

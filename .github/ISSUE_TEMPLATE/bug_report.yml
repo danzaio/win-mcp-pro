@@ -1,0 +1,46 @@
+name: Bug report
+description: A tool misbehaves, refuses when it should not, or acts when it should refuse.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If a refused call still sent input, or an action landed on a different window than the one named, use a [private security report](https://github.com/danzaio/win-mcp-pro/security/advisories/new) instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The tool call, and what came back.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The target app, and the sequence of tool calls. Fewer is better.
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: Output of the `doctor` tool, or Windows build, Python version and win-mcp-pro version.
+    validations:
+      required: true
+  - type: input
+    id: flags
+    attributes:
+      label: Server flags
+      description: For example `--read-only`, `--tools ...`, `--uia-worker`.
+  - type: textarea
+    id: logs
+    attributes:
+      label: stderr log
+      description: Tool names and argument names only; argument values are never logged.
+      render: text

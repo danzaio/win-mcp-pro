@@ -7,8 +7,8 @@ import os
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from server import main, registry
-from tools import vision
+from win_mcp_pro.server import main, registry
+from win_mcp_pro.tools import vision
 
 
 def _fake_capture(rgb_byte=b"\x7f", w=64, h=48, origin=(0, 0)):
@@ -29,8 +29,7 @@ def fake_shot(monkeypatch, tmp_path):
 
 
 def test_tools_contract():
-    assert {t["name"] for t in vision.TOOLS} == {"screenshot", "zoom",
-                                                      "displays", "img_convert"}
+    assert {t["name"] for t in vision.TOOLS} == {"screenshot", "zoom", "displays", "win_shot"}
     for t in vision.TOOLS:
         assert t["description"]
         assert issubclass(t["schema"], BaseModel)

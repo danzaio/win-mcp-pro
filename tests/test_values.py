@@ -1,13 +1,13 @@
-"""Tests for tools/values.py — set_value / get_value / paste_text / menu_click.
+"""Tests for win_mcp_pro/tools/values.py — set_value / get_value / paste_text / menu_click.
 
-Mirrors the conventions of tools/query.py (the act layer's sibling):
+Mirrors the conventions of win_mcp_pro/tools/query.py (the act layer's sibling):
 
 - The UIA layer is a fake shipped inline (no Windows, no uiautomation).
 - Element ids resolve through query's in-process registry first, and through
   the literal "hwnd:runtimeid" form as a fallback (snapshot-style ids).
 - Handlers return ``{"ok": True, ...}`` or ``{"ok": False, "error": CODE, ...}``
   and accept either a mapping or keyword arguments.
-- Clipboard and keyboard input funnel through tools/compat.py seams, which are
+- Clipboard and keyboard input funnel through win_mcp_pro/tools/compat.py seams, which are
   swapped out here, so no test touches a real desktop.
 """
 
@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from tools import compat, query, values
+from win_mcp_pro.tools import compat, query, values
 
 
 # --------------------------------------------------------------------------
@@ -396,6 +396,20 @@ def test_menu_click_finds_submenu_parented_to_window(monkeypatch):
     """Providers that parent the popup to the window still resolve."""
     parts = build_tree(submenu_reveals_under="window")
     install_tree(monkeypatch, parts)
+    result = values.menu_click(["File", "Save As"])
+    assert result["ok"] is True, result
+    assert result["clicked"] == "Save As"
+
+def test_menu_click_uses_the_foreground_window_not_the_first_desktop_child(monkeypatch):
+    """With another window first in Z-order, the menu must come from the foreground one."""
+    parts = build_tree()
+    decoy = FakeControl("Decoy", "WindowControl", (9,), handle=999, children=[])
+    parts.root._children.insert(0, decoy)
+    install_tree(monkeypatch, parts)
+    real_window = parts.root._children[1]
+    monkeypatch.setattr(
+        values._uia, "GetForegroundControl", lambda: real_window, raising=False
+    )
     result = values.menu_click(["File", "Save As"])
     assert result["ok"] is True, result
     assert result["clicked"] == "Save As"

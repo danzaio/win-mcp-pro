@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import pytest
 
-from server import main as server_main, registry
-from tools import compat, vision
+from win_mcp_pro.server import main as server_main, registry
+from win_mcp_pro.tools import compat, vision
 
 
 class FakeRect:

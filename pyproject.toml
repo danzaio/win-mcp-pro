@@ -1,30 +1,67 @@
 [project]
 name = "win-mcp-pro"
-version = "0.1.0"
-description = "Windows computer-use MCP server: UIA tree first, Control Patterns for actions, images only as opt-in fallback."
+dynamic = ["version"]
+description = "A small, auditable Windows UI Automation MCP server. Every input is bound to a verified element or frame; refusals send nothing."
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "danzaio" }]
+keywords = ["mcp", "model-context-protocol", "windows", "ui-automation", "computer-use", "agents"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+]
 dependencies = [
     "mcp>=2.3,<3",
     "pydantic>=2,<3",
-    "uiautomation",
-    "comtypes",
+    "uiautomation; sys_platform == 'win32'",
+    "comtypes; sys_platform == 'win32'",
     "mss",
     "pillow",
-    "websocket-client>=1.7",
-    "winsdk>=1.0.0b10",
+    "winsdk>=1.0.0b10; sys_platform == 'win32' and python_version < '3.13'",
 ]
 
+[project.urls]
+Homepage = "https://github.com/danzaio/win-mcp-pro"
+Issues = "https://github.com/danzaio/win-mcp-pro/issues"
+Changelog = "https://github.com/danzaio/win-mcp-pro/blob/master/CHANGELOG.md"
+Security = "https://github.com/danzaio/win-mcp-pro/blob/master/SECURITY.md"
+
+[project.scripts]
+win-mcp-pro = "win_mcp_pro.server.main:main"
+
 [project.optional-dependencies]
-dev = ["pytest>=8,<10"]
+dev = ["pytest>=8,<10", "ruff"]
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["server", "tools"]
+[tool.setuptools.dynamic]
+version = { attr = "win_mcp_pro.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["win_mcp_pro*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E9", "F"]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+pythonPlatform = "Windows"
+include = ["win_mcp_pro", "tests", "bench"]
